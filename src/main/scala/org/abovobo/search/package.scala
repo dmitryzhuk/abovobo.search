@@ -102,4 +102,19 @@ package object search {
     result
   }
 
+  def pD(N: Long, D: Long): Double = D * (0L until D).foldLeft(1.0) { (r, i) => r * (D - i) / (N - i) }
+
+  def p0(N: Long, D: Long): Double = (0L until D).foldLeft(1.0) { (r, i) => r * (N - D - i) / (N - i) }
+
+  /*
+  def pdd(N: Long, D: Long, d: Long): Double =
+    d *
+      (0L until d).foldLeft(1.0) { (r, i) => r * (D - i) / (N - i) } *
+      (0L until (D - d)).foldLeft(1.0) { (r, i) => r * (N - D - i) / (N - d - i) }
+      */
+
+  def pdd(N: Long, D: Long, d: Long): Double =
+    (1L to d).foldLeft(1.0) { (r, i) => r * (D - d + i) / (N - d + i) }
+
+  def f0(N: Long, D: Long): Seq[Double] = p0(N, D) :: (1L until D).map(pdd(N, D, _)).toList ::: List(pD(N, D))
 }

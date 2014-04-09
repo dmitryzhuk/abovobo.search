@@ -11,15 +11,17 @@
 package org.abovobo.search
 
 /** Tests propagation parameters calculator (alpha,tau) */
-object PropagationTest extends App {
+object IntersectionTest extends App {
 
   val N = Array(100, 1000, 10000, 100000, 1000000, 10000000, 15000000, 100000000, 1000000000)
+  val D = 3000
 
   for (n <- N) {
-    val distr = distribution(n)
+    /*val distr = distribution(n)
     val propM = propagation(distr._1)
-    val propK = propagation(distr._2)
-    println(n + ";" + distr._1 + ";" + propM + ";" + distr._2 + ";" + propK)
+    val propK = propagation(distr._2)*/
+    val dd = f0(n, D)
+    println(n + ";" + dd.reduceLeft(_ + _) + ";" + dd)
   }
 
 }

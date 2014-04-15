@@ -102,19 +102,53 @@ package object search {
     result
   }
 
-  def pD(N: Long, D: Long): Double = D * (0L until D).foldLeft(1.0) { (r, i) => r * (D - i) / (N - i) }
+  /**
+   * Calculates number of combinations of K elements from N.
+   *
+   * @param N Total number of elements.
+   * @param K Number of elements in selection.
+   * @return  Number of combinations.
+   */
+  def combinations(N: Long, K: Long): Double =
+    if (K > N) 0
+    else if (K == N) 1
+    else
+      (0L until K).foldLeft(1.0) {
+        (r, k) => r * (N - k).toDouble / (k + 1).toDouble
+      }
 
-  def p0(N: Long, D: Long): Double = (0L until D).foldLeft(1.0) { (r, i) => r * (N - D - i) / (N - i) }
+  /**
+   * Calculates the probability of getting `d` common elements in 2 subsets of sizes
+   * `D1` and `D2` of set `N`.
+   *
+   * @param N   Number of elements in the set.
+   * @param D1  Number of elements in the first subset.
+   * @param D2  Number of elements in the second subset.
+   * @param d   Number of common elements in D1 and D2.
+   * @return    Probability of having given d.
+   */
+  def pd(N: Long, D1: Long, D2: Long, d: Long): Double = {
+    require(D1 <= N)
+    require(D2 <= N)
+    require(d <= D2)
+    val p0 = (0L until d).foldLeft(1.0) {
+      (r, i) => r * (D1 - i).toDouble / (N - i).toDouble
+    }
+    val p1 = (0L until (D2 - d)).foldLeft(1.0) {
+      (r, i) => r * (N - D1 - i).toDouble / (N - d - i).toDouble
+    }
+    val c = combinations(D2, d)
+    c * p0 * p1
+  }
 
-  /*
-  def pdd(N: Long, D: Long, d: Long): Double =
-    d *
-      (0L until d).foldLeft(1.0) { (r, i) => r * (D - i) / (N - i) } *
-      (0L until (D - d)).foldLeft(1.0) { (r, i) => r * (N - D - i) / (N - d - i) }
-      */
-
-  def pdd(N: Long, D: Long, d: Long): Double =
-    (1L to d).foldLeft(1.0) { (r, i) => r * (D - d + i) / (N - d + i) }
-
-  def f0(N: Long, D: Long): Seq[Double] = p0(N, D) :: (1L until D).map(pdd(N, D, _)).toList ::: List(pD(N, D))
+  /**
+   * Calculates the distribution of probabilities defined by method [[org.abovobo.search.pd()]] above.
+   *
+   * @param N   Number of elements in the set.
+   * @param D1  Number of elements in the first subset.
+   * @param D2  Number of elements in the second subset.
+   * @return    Sequence of probabilities where each element represents a probability of having `index`
+   *            common elements in subsets D1 and D2.
+   */
+  def p(N: Long, D1: Long, D2: Long): IndexedSeq[Double] = (0L to D2).map(pd(N, D1, D2, _))
 }

@@ -2,6 +2,7 @@ package org.abovobo.search
 
 import org.abovobo.search.ContentIndex.ContentRef
 import org.abovobo.search.ContentIndex.ContentItem
+import org.abovobo.search.IndexManagerRegistry.ContentItemStats
 
 class IndexManager(val maxItemsCount: Int, ci: ContentIndex, reg: IndexManagerRegistry) {
   import IndexManager._
@@ -20,12 +21,17 @@ class IndexManager(val maxItemsCount: Int, ci: ContentIndex, reg: IndexManagerRe
   def offer(item: ContentItem): OfferResponse = {
     // first check do we have this item
     reg.get(item.id) match {
-      case Some(stats) => AlreadyHave()
+      case Some(stats) => {
+        val updated = stats.copy(announces = stats.announces + 1, lastAnnounced = System.currentTimeMillis)
+        reg.update(updated)
+        AlreadyHave()
+      }
       case None => {
         // new item for us to consider
         if (reg.count < maxItemsCount) {
           // we always add new items if there's a space
           ci.add(item)
+          reg.add(ContentItemStats(item.id, 0, 1))
           Accepted()
         } else {
           RejectedNoSpace()
@@ -47,6 +53,11 @@ class IndexManager(val maxItemsCount: Int, ci: ContentIndex, reg: IndexManagerRe
   }
   
   def cleanupNeeded: Boolean = reg.count > maxItemsCount * RedZoneFactor
+  
+  def clear() = {
+    ci.clear()
+    reg.clear()
+  }
   
   // TODO: call cleanup/rotation procedure
 }

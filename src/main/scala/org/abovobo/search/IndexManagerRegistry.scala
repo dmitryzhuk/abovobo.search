@@ -12,6 +12,29 @@ import scala.slick.util.CloseableIterator
 import java.io.Closeable
 
 
+object IndexManagerRegistry extends App {
+  
+  case class ContentItemStats(id: String, hits: Int = 0, announces: Int = 0, added: Long = System.currentTimeMillis, lastAnnounced: Long = System.currentTimeMillis, lastHit: Long = System.currentTimeMillis)
+
+  object CIStats {
+    val TableName = "ContentItemStats"
+  }
+  
+  class CIStats(tag: Tag) extends Table[ContentItemStats](tag, None, CIStats.TableName) {      
+    def id = column[String]("ID", O.PrimaryKey)
+
+    def hits = column[Int]("hits", O.Default(0))
+    def announces = column[Int]("announces", O.Default(0))
+    
+    def added = column[Long]("added")
+    def lastAnnounced = column[Long]("lastAnnounced") 
+    
+    def lastHit = column[Long]("lastHit")
+    
+    def * = (id, hits, announces, added, lastAnnounced, lastHit) <> (ContentItemStats.tupled, ContentItemStats.unapply)
+  }
+}
+
 class IndexManagerRegistry(dbUrl: String) extends Closeable {
   private val db = Database.forURL(dbUrl, driver = "org.h2.Driver")
   protected val stats: TableQuery[CIStats] = TableQuery[CIStats]
@@ -42,107 +65,18 @@ class IndexManagerRegistry(dbUrl: String) extends Closeable {
      
   def getAll: List[ContentItemStats] = stats.list
   
-  def count: Int = StaticQuery.queryNA[Int]("select count(*) from \"" + IndexManagerRegistry.TableName + "\"").first
+  def count: Int = 
+    //stats.length.run
+    StaticQuery.queryNA[Int]("select count(*) from \"" + CIStats.TableName + "\"").first
   
   def clear() { stats.delete }
    
   def close() = session.close()
     
   // ctor
-  if (MTable.getTables(IndexManagerRegistry.TableName).list.isEmpty) {
+  if (MTable.getTables(CIStats.TableName).list.isEmpty) {
     stats.ddl.create    
   }
 }
 
 
-object IndexManagerRegistry extends App {
-  val TableName = "ContentItemStats"
-  
-  case class ContentItemStats(id: String, hits: Int = 0, announces: Int = 0, added: Long = System.currentTimeMillis, lastAnnounced: Long = System.currentTimeMillis, lastHit: Long = System.currentTimeMillis)
-
-  class CIStats(tag: Tag) extends Table[ContentItemStats](tag, TableName) {      
-    def id = column[String]("ID", O.PrimaryKey)
-
-    def hits = column[Int]("hits", O.Default(0))
-    def announces = column[Int]("announces", O.Default(0))
-    
-    def added = column[Long]("added")
-    def lastAnnounced = column[Long]("lastAnnounced") 
-    
-    def lastHit = column[Long]("lastHit")
-    
-    def * = (id, hits, announces, added, lastAnnounced, lastHit) <> (ContentItemStats.tupled, ContentItemStats.unapply)
-  }
-
-  
-//  implicit def integer160ToString(i: Integer160) = i.toString
-//  def now = System.currentTimeMillis
-//
-//        
-//  if (false) {
-//    // test
-//    
-//    val db = Database.forURL("jdbc:h2:mem:stats", driver = "org.h2.Driver")
-//    
-//    
-//    val stats: TableQuery[CIStats] = TableQuery[CIStats]
-//
-//    db.withSession { implicit session => 
-//      stats.ddl.create
-//      
-//      val ref = Integer160.random.toString
-//      
-//      stats += ContentItemStats(ref, 10, 20, now, now)
-//      stats += ContentItemStats(Integer160.random, 11, 21, now, now)
-//      stats += ContentItemStats(Integer160.random, 12, 22, now, now)
-//      
-//    
-//      println(stats.list)
-//
-//      stats.filter(_.id === ref).delete
-//      
-//      
-//      stats += ContentItemStats(Integer160.random, 15, 25, now, now)
-//      
-//      println(stats.list)
-//    }
-//  }
-//  
-//  {
-//    // test 2
-//    val registry = new IndexManagerRegistry("jdbc:h2:~/db/stats")
-//    
-//    val id = Integer160.random
-//    
-//    registry.clear()
-//    
-//    registry.add(ContentItemStats(id, 10, 20, now, now))
-//    registry.add(ContentItemStats(id + 1, 11, 20, now, now))
-//    registry.add(ContentItemStats(id + 2, 12, 20, now, now))
-//    
-//    println("count")
-//    println(registry.count)
-//
-//    println("get: " + registry.get(id))
-//    
-//    val oldVal = registry.get(id).get
-//    
-//    val newVal = oldVal.copy(hits = oldVal.hits + 7)
-//    
-//    registry.update(newVal)
-//    
-//    println("updated")
-//    println(registry.getAll)
-//
-//
-//    println("deleted")
-//
-//    registry.remove(id)
-//    
-//    println("get: " + registry.get(id))
-//
-//    println(registry.getAll)
-//
-//    registry.close()
-//  }
-}

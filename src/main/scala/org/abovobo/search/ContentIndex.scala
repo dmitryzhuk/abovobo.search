@@ -32,7 +32,7 @@ object ContentIndex {
   val MaxTitleLenght = 256
   val MaxDescriptionLength = 512
   
-  class ContentItem(val id: CID, val title: String, val description: String, val size: Long) {
+  case class ContentItem(id: CID, title: String, description: String, size: Long) {
     
     if (title.length() > MaxTitleLenght) throw new IllegalArgumentException("title is too long")
     if (description.length() > MaxDescriptionLength) throw new IllegalArgumentException("description is too long")
@@ -40,5 +40,11 @@ object ContentIndex {
     override def toString = id.toString + " : " + title + " : " + description + " : " + size + " bytes"
   }
  
-  class ContentRef(val id: CID, val title: String, val ts: Long, val hitsCount: Long)
+  sealed trait ContentRef {
+    def id: CID
+  }
+  
+  case class SimpleContentRef(id: CID, title: String) extends ContentRef
+  case class RatedContentRef(id: CID, title: String, timestamp: Long, hits: Long) extends ContentRef
+  
 }

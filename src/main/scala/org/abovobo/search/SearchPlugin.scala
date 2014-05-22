@@ -17,48 +17,56 @@ import org.abovobo.dht.TID
 import org.abovobo.dht.Node
 import akka.actor.ActorRef
 import scala.concurrent.duration._
+import org.abovobo.search.ContentIndex.CID
+import scala.collection.mutable
+import scala.collection.mutable.HashSet
+import akka.actor.Cancellable
+import org.abovobo.dht.TIDFactory
+import akka.actor.Actor
+import org.abovobo.search.SearchPlugin.IndexManagerActor._
 
-class SearchPlugin(pid: Plugin.PID, dhtController: ActorRef, dhtTable: Reader, im: IndexManager) extends Plugin(pid) with ActorLogging {
+class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef, dhtTable: Reader, indexManager: ActorRef) extends Plugin(pid) with ActorLogging {
   import scala.pickling._
   import scala.pickling.binary._
-
   import SearchPlugin._
 
-  // XXX: to params
-  private val selfId = Integer160.random
+  val system = this.context.system
+  import system.dispatcher
+  
+  val announceTtl = 3
+  val searchTtl = 3
 
   // XXX: to params?
-  private val transactionManager: TransactionManager[TID, Command] = null // = new TransactionManager(this.context.system.scheduler, 15.seconds)
+  /// searchString -> SearchOperations
+  val currentRequests: TransactionManager[TID, SearchOperation] = new TransactionManager(this.context.system.scheduler, 15.seconds)
+  val tidFactory = new TIDFactory
 
   override def receive = {
-    case Controller.Received(pluginMessage, remote) =>
-      pluginMessage match {
-        case message: PluginMessage => {
-          implicit val pm = message
+    case Controller.Received(message, remote) =>
+      message match {
+        case pluginMessage: PluginMessage => {
+          implicit val pm = pluginMessage
           implicit val rm = remote
+          
+          pluginMessage.payloadBytes.unpickle[SearchMessage] match {
+            case nc: SearchNetworkCommand => {
+              this.log.debug("Got command: " + nc)
 
-          message.payloadBytes.unpickle[SearchMessage] match {
-            case c: Command => {
-              this.log.debug("Got command: " + c)
-              // TODO: begin transaction
-              c match {
-                case Announce(item) => {
-                  // XXX: we should respond to 'sender' somehow. probably we should introduce a proxy that will wrap the response into plugin message 
-                  dhtController ! createResponseMessage(AnnounceResult(im.offer(item)))
-                }
+              nc.cmd match {
+                case Announce(item) => announce(item, nc.ttl)
                 case Lookup(searchString) => {
-                  // local lookup
-                  val found = im.search(searchString)
-                  dhtController ! createResponseMessage(FoundItems(found))
+                  val responder = new NetworkResponder(new Node(pluginMessage.id, remote), pluginMessage)
+                  search(searchString, responder, nc.ttl)
                 }
               }
             }
+            case _: Command => throw new IllegalStateException("command should be always wrapped into network command")
             case r: Response => {
               // TODO: end transaction 
               this.log.debug("Got response message: " + r)
               r match {
-                case AnnounceResult(result) =>
-                case FoundItems(found) =>
+                case FoundItems(searchString, found) =>
+                case SearchFinished(searchString) =>
                 case Error(code, text) =>
               }
             }
@@ -66,24 +74,75 @@ class SearchPlugin(pid: Plugin.PID, dhtController: ActorRef, dhtTable: Reader, i
         } // case PluginMessage
         case _ => this.log.error("Wrong message type recieved from DHT Controller")
       }
-    case Announce(item) =>
-      // local response
-      sender ! AnnounceResult(im.offer(item))
-    case Lookup(searchString) =>
-      // local results
-      sender ! FoundItems(im.search(searchString))
-
+            
+    case Announce(item) => announce(item, announceTtl)
+    case Lookup(searchString) => search(searchString, new DirectResponder(sender), searchTtl)
+    
+    case IndexManagerResponse(tid, response) => response match {
+      case FoundItems(searchStrimg, refs) => {
+        // TODO: update search operation with results 
+      }
+      case _ => throw new IllegalStateException
+    }
 
     // XXX: 
     // here it should be like
     // case error: Error => 
     // from Controller. Or something like that
   }
+  
+  def announce(item: ContentItem, ttl: Int) {
+    indexManager ! IndexManagerCommand(tidFactory.next, Announce(item))
+    if (ttl > 1)  {
+      announceToNetwork(item, ttl - 1)
+    }
+  }
+  
+  def announceToNetwork(item: ContentItem, ttl: Int) {
+    // TODO: grab nodes, send announce
+  }
+  
+  def search(searchString: String, responder: Responder, ttl: Int) {
+    val tid = tidFactory.next
+    val searchOp = new SearchOperation(searchString, responder)
 
-  class SearchPluginResponse(tid: TID, r: Response) extends PluginMessage(tid, selfId, pid, r.pickle.value)
+    currentRequests.add(tid, searchOp)
+    
+    indexManager ! IndexManagerCommand(tid, Lookup(searchString))
+    
+    if (ttl > 1) {
+      searchInNetwork(searchOp, ttl - 1)
+    }
+  }
+  
+  def searchInNetwork(searchOp: SearchOperation, ttl: Int) {
+    // todo: grab nodes, send lookup
+  }
+  
+  private[search] case class SearchNetworkCommand(cmd: Command, ttl: Byte) extends SearchMessage
+    
+  trait Responder {
+    def respond(response: Response)
+  }
+  class DirectResponder(sender: ActorRef) extends Responder {
+    def respond(response: Response) = sender ! response 
+  }
+  class NetworkResponder(sender: Node, request: PluginMessage) extends Responder {
+    def respond(response: Response) = dhtController ! createResponseMessage(response)(request, sender.address)
+  }
+  
+  class SearchOperation(
+      val searchString: String,
+      val responder: Responder) {
+    val pendingQueries: mutable.Set[Integer160] = HashSet(selfId)
+    val reportedResults: mutable.Set[String] = HashSet()
+    val pendingResults: mutable.Set[ContentRef] = HashSet()    
+  }
+
+  class SearchPluginMessage(tid: TID, r: Response) extends PluginMessage(tid, selfId, pid, r.pickle.value)
 
   def createResponseMessage(r: Response)(implicit request: PluginMessage, remote: InetSocketAddress): SendPluginMessage = {
-    SendPluginMessage(new SearchPluginResponse(request.tid, r), new Node(request.id, remote))
+    SendPluginMessage(new SearchPluginMessage(request.tid, r), new Node(request.id, remote))
   }
 }
 
@@ -97,11 +156,33 @@ object SearchPlugin {
 
   sealed trait Response extends SearchMessage
 
-  final case class AnnounceResult(result: IndexManager.OfferResponse) extends Response
-  final case class FoundItems(found: Traversable[ContentRef]) extends Response
+  //final case class AnnounceResult(itemId: CID, result: IndexManager.OfferResponse) extends Response
+  final case class FoundItems(searchString: String, found: Traversable[ContentRef]) extends Response
+  
+  final case class SearchFinished(searchString: String) extends Response
 
   // XXX: incorporate this into DHT error handling mechanism
   final case class Error(code: Int, text: String) extends Response
+  
+  class IndexManagerActor(indexManager: IndexManager) extends Actor {
+    import IndexManagerActor._
+    override def receive = {
+      case IndexManagerCommand(id, cmd) => cmd match {
+        case Announce(item) =>
+          // local response
+          //sender ! AnnounceResult(item.id, im.offer(item))
+          indexManager.offer(item)
+        case Lookup(searchString) =>
+          // local results
+          sender ! IndexManagerResponse(id, FoundItems(searchString, indexManager.search(searchString))) 
+      }
+
+    }
+  }
+  object IndexManagerActor {
+    case class IndexManagerCommand(id: TID, cmd: Command)
+    case class IndexManagerResponse(id: TID, response: Response)
+  }
 }
 
 object PickleApp extends App {

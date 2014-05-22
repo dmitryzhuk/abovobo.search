@@ -42,6 +42,13 @@ object ContentIndex {
  
   sealed trait ContentRef {
     def id: CID
+    
+    override def equals(o: Any) = o match {
+      case that: ContentRef => this.id.equals(that.id)
+      case _ => false
+    }
+    
+    override def hashCode = id.hashCode
   }
   
   case class SimpleContentRef(id: CID, title: String) extends ContentRef

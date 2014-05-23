@@ -24,8 +24,9 @@ import akka.actor.Cancellable
 import org.abovobo.dht.TIDFactory
 import akka.actor.Actor
 import org.abovobo.search.SearchPlugin.IndexManagerActor._
+import akka.actor.Props
 
-class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef, dhtTable: Reader, indexManager: ActorRef) extends Plugin(pid) with ActorLogging {
+class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef, indexManager: ActorRef, dhtTable: Reader) extends Plugin(pid) with ActorLogging {
   import scala.pickling._
   import scala.pickling.binary._
   import SearchPlugin._
@@ -38,7 +39,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
 
   // XXX: to params?
   /// searchString -> SearchOperations
-  val currentRequests: TransactionManager[TID, SearchOperation] = new TransactionManager(this.context.system.scheduler, 15.seconds)
+  val currentRequests: TransactionManager[TID, SearchOperation] = new TransactionManager(this.context.system.scheduler, 5.seconds, { (id) => self ! SearchTimeout(id) })
   val tidFactory = new TIDFactory
 
   override def receive = {
@@ -49,14 +50,14 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
           implicit val rm = remote
           
           pluginMessage.payloadBytes.unpickle[SearchMessage] match {
-            case nc: SearchNetworkCommand => {
-              this.log.debug("Got command: " + nc)
+            case SearchNetworkCommand(cmd, ttl) => {
+              this.log.debug("Got command: " + cmd)
 
-              nc.cmd match {
-                case Announce(item) => announce(item, nc.ttl)
+              cmd match {
+                case Announce(item) => announce(item, ttl)
                 case Lookup(searchString) => {
                   val responder = new NetworkResponder(new Node(pluginMessage.id, remote), pluginMessage)
-                  search(searchString, responder, nc.ttl)
+                  search(searchString, responder, ttl)
                 }
               }
             }
@@ -76,13 +77,26 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
       }
             
     case Announce(item) => announce(item, announceTtl)
+    
     case Lookup(searchString) => search(searchString, new DirectResponder(sender), searchTtl)
     
     case IndexManagerResponse(tid, response) => response match {
-      case FoundItems(searchStrimg, refs) => {
-        // TODO: update search operation with results 
+        case FoundItems(searchString, refs) => currentRequests.get(tid) match {
+            case Some(search) => {
+              log.debug("Local response: " + response)
+              reportResults(search, selfId, refs)
+            }
+            case None => log.info("local response for unknown/expired request: " + tid + ", " + response)
+        }
+        case _ => throw new IllegalStateException
+    }
+      
+    case SearchTimeout(tid) => currentRequests.fail(tid) match {
+      case Some(search) => {
+        log.debug("finishing search " + tid + " " + search.searchString + " by timeout. Not responded: " + search.pendingQueries.size)
+        search.finish() 
       }
-      case _ => throw new IllegalStateException
+      case None => log.info("timeout for unknown/expired request: " + tid)
     }
 
     // XXX: 
@@ -104,7 +118,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   
   def search(searchString: String, responder: Responder, ttl: Int) {
     val tid = tidFactory.next
-    val searchOp = new SearchOperation(searchString, responder)
+    val searchOp = new SearchOperation(tid, searchString, responder)
 
     currentRequests.add(tid, searchOp)
     
@@ -119,25 +133,51 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     // todo: grab nodes, send lookup
   }
   
-  private[search] case class SearchNetworkCommand(cmd: Command, ttl: Byte) extends SearchMessage
+  def reportResults(search: SearchOperation, from: Integer160, items: Traversable[ContentRef]) = {
+    val uniqueResults = items.filterNot { i=> search.reportedResults.contains(i.id) }
+
+    if (!uniqueResults.isEmpty) {
+      search.respond(FoundItems(search.searchString, uniqueResults))    
+      search.reportedResults ++= uniqueResults.map(_.id)      
+    }
+
+    search.pendingQueries -= from
     
-  trait Responder {
-    def respond(response: Response)
+    if (search.pendingQueries.isEmpty) {
+      // finish search, cleanup
+      search.finish()
+      currentRequests.complete(search.tid)
+    } 
   }
+  
+  
+  // private messages
+  case class SearchNetworkCommand(cmd: Command, ttl: Byte) extends SearchMessage
+  case class SearchTimeout(tid: TID)
+  
+  /// active searches state
+  
+  trait Responder extends (Response => Any) 
+
   class DirectResponder(sender: ActorRef) extends Responder {
-    def respond(response: Response) = sender ! response 
+    def apply(response: Response) = sender ! response 
   }
   class NetworkResponder(sender: Node, request: PluginMessage) extends Responder {
-    def respond(response: Response) = dhtController ! createResponseMessage(response)(request, sender.address)
+    def apply(response: Response) = dhtController ! createResponseMessage(response)(request, sender.address)
   }
   
   class SearchOperation(
+      val tid: TID,
       val searchString: String,
-      val responder: Responder) {
+      val respond: Response => Any) {
     val pendingQueries: mutable.Set[Integer160] = HashSet(selfId)
     val reportedResults: mutable.Set[String] = HashSet()
     val pendingResults: mutable.Set[ContentRef] = HashSet()    
+    
+    def finish() = respond(SearchFinished(searchString))
   }
+  
+  // utilities for controller communication
 
   class SearchPluginMessage(tid: TID, r: Response) extends PluginMessage(tid, selfId, pid, r.pickle.value)
 
@@ -147,6 +187,9 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
 }
 
 object SearchPlugin {
+  def props(selfId: Integer160, dhtController: ActorRef, indexManager: ActorRef, dhtTable: Reader) = 
+    Props(classOf[SearchPlugin], selfId, Plugin.SearchPluginId, dhtController, indexManager, dhtTable)
+  
   sealed trait SearchMessage
 
   sealed trait Command extends SearchMessage
@@ -164,24 +207,43 @@ object SearchPlugin {
   // XXX: incorporate this into DHT error handling mechanism
   final case class Error(code: Int, text: String) extends Response
   
-  class IndexManagerActor(indexManager: IndexManager) extends Actor {
+  class IndexManagerActor(indexManager: IndexManager) extends Actor with ActorLogging {
     import IndexManagerActor._
+    val system = context.system
+    import system.dispatcher
+    
     override def receive = {
       case IndexManagerCommand(id, cmd) => cmd match {
         case Announce(item) =>
-          // local response
-          //sender ! AnnounceResult(item.id, im.offer(item))
           indexManager.offer(item)
         case Lookup(searchString) =>
-          // local results
-          sender ! IndexManagerResponse(id, FoundItems(searchString, indexManager.search(searchString))) 
+          sender ! IndexManagerResponse(id, FoundItems(searchString, indexManager.search(searchString)))           
       }
-
+      case ScheduleCleanup =>
+        log.debug("ScheduleCleanup")
+        if (indexManager.cleanupNeeded) {
+          context.system.scheduler.scheduleOnce(15 seconds, self, Cleanup)
+        }
+      case Cleanup => {
+        log.debug("Cleanup")
+        indexManager.cleanup()
+        context.system.scheduler.scheduleOnce(1 day, self, Cleanup)        
+      }
+      case Clear =>
+        log.debug("Clear")
+        indexManager.clear()
     }
+    
+    // schedule cleanup routine
+    case object Cleanup
+    case object ScheduleCleanup
+    
+    self ! ScheduleCleanup
   }
   object IndexManagerActor {
     case class IndexManagerCommand(id: TID, cmd: Command)
     case class IndexManagerResponse(id: TID, response: Response)
+    case object Clear
   }
 }
 

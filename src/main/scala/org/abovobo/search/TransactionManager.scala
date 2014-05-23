@@ -10,7 +10,7 @@ import scala.concurrent.ExecutionContext
 class TransactionManager[ID, TData](
     scheduler: Scheduler,
     timeout: FiniteDuration, 
-    timeoutHandler: (ID, TData) => Any = (a: ID, b: TData) => {})
+    timeoutHandler: ID => Any)
     (implicit executor: ExecutionContext) {
 	
   private class Transaction(val data: TData, val timer: Cancellable)
@@ -18,12 +18,8 @@ class TransactionManager[ID, TData](
   private val transactions = new HashMap[ID, Transaction]
   
 	def add(id: ID, data: TData) {
-	  val prev = transactions.put(id, new Transaction(data, scheduler.scheduleOnce(timeout)(timeout(id))))
+	  val prev = transactions.put(id, new Transaction(data, scheduler.scheduleOnce(timeout)(timeoutHandler(id))))
 	  if (prev.isDefined) throw new IllegalStateException("duplicate transaction entry")
-	  
-    //	  // cancel previous transaction timer, actually 
-    //	  prev foreach { _ => fail(id) }	  
-    //	  prev.map(_.data)
 	}
 	
 	def remove(id: ID): Option[TData] = {
@@ -37,11 +33,6 @@ class TransactionManager[ID, TData](
 	def complete(id: ID) = remove(id)
 
 	def fail(id: ID) = remove(id) 
-	
-	def timeout(id: ID) = remove(id) match {
-	  case Some(data) => timeoutHandler(id, data); Some(data)
-	  case None => None
-	}
-	
+		
 	def list: scala.collection.Map[ID, TData] = transactions.mapValues(_.data)
 }

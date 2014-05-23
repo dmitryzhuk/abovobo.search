@@ -25,6 +25,7 @@ import org.abovobo.dht.TIDFactory
 import akka.actor.Actor
 import org.abovobo.search.SearchPlugin.IndexManagerActor._
 import akka.actor.Props
+import scala.util.Random
 
 class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef, indexManager: ActorRef, dhtTable: Reader) extends Plugin(pid) with ActorLogging {
   import scala.pickling._
@@ -33,9 +34,14 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
 
   val system = this.context.system
   import system.dispatcher
+  import SearchPlugin._
   
+  val announceWidth = 10
+  val searchWidth = 10
   val announceTtl = 3
   val searchTtl = 3
+  val random = new Random()
+
 
   // XXX: to params?
   /// searchString -> SearchOperations
@@ -61,16 +67,17 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
                 }
               }
             }
-            case _: Command => throw new IllegalStateException("command should be always wrapped into network command")
-            case r: Response => {
-              // TODO: end transaction 
-              this.log.debug("Got response message: " + r)
-              r match {
-                case FoundItems(searchString, found) =>
-                case SearchFinished(searchString) =>
-                case Error(code, text) =>
+            case response: Response => {
+              currentRequests.get(pluginMessage.tid) match {
+                case Some(search) =>
+                  response match {
+                    case FoundItems(searchString, items) => reportResults(search, pluginMessage.id, items)
+                    case SearchFinished(searchString) => finishSearch(search, pluginMessage.id)
+                  }
+                case None => log.info("netrowk response from " + remote + " for unknown/expired request: " + pluginMessage.tid + ", " + response)
               }
             }
+            case _ => throw new IllegalStateException("command should be always wrapped into network command")
           }
         } // case PluginMessage
         case _ => this.log.error("Wrong message type recieved from DHT Controller")
@@ -113,24 +120,41 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   }
   
   def announceToNetwork(item: ContentItem, ttl: Int) {
-    // TODO: grab nodes, send announce
+    val msg = SearchNetworkCommand(Announce(item), ttl.toByte)
+    val tid = tidFactory.next
+    val pm = new SearchPluginMessage(tid, msg)      
+    
+    randomNodes(announceWidth) foreach { n =>
+      dhtController ! SendPluginMessage(pm, n)
+    }
   }
   
   def search(searchString: String, responder: Responder, ttl: Int) {
     val tid = tidFactory.next
-    val searchOp = new SearchOperation(tid, searchString, responder)
+    val search = new SearchOperation(tid, searchString, responder)
 
-    currentRequests.add(tid, searchOp)
+    currentRequests.add(tid, search)
     
     indexManager ! IndexManagerCommand(tid, Lookup(searchString))
     
     if (ttl > 1) {
-      searchInNetwork(searchOp, ttl - 1)
+      val queriedNodes = searchInNetwork(search, ttl - 1).map(_.id)
+      search.pendingQueries ++= queriedNodes
     }
   }
   
-  def searchInNetwork(searchOp: SearchOperation, ttl: Int) {
-    // todo: grab nodes, send lookup
+  def searchInNetwork(search: SearchOperation, ttl: Int): Traversable[Node] = {
+    val msg = new SearchPluginMessage(search.tid, SearchNetworkCommand(Lookup(search.searchString), ttl.toByte))
+    
+    val nodes = randomNodes(searchWidth)
+    nodes foreach { n => 
+      dhtController ! SendPluginMessage(msg, n)
+    }
+    nodes
+  }
+  
+  def randomNodes(count: Int): Traversable[Node] = {
+    random.shuffle(dhtTable.nodes).take(count)
   }
   
   def reportResults(search: SearchOperation, from: Integer160, items: Traversable[ContentRef]) = {
@@ -140,14 +164,16 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
       search.respond(FoundItems(search.searchString, uniqueResults))    
       search.reportedResults ++= uniqueResults.map(_.id)      
     }
-
+  }
+  
+  def finishSearch(search: SearchOperation, from: Integer160) {
     search.pendingQueries -= from
     
     if (search.pendingQueries.isEmpty) {
       // finish search, cleanup
       search.finish()
       currentRequests.complete(search.tid)
-    } 
+    }    
   }
   
   
@@ -179,10 +205,10 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   
   // utilities for controller communication
 
-  class SearchPluginMessage(tid: TID, r: Response) extends PluginMessage(tid, selfId, pid, r.pickle.value)
+  class SearchPluginMessage(tid: TID, msg: SearchMessage) extends PluginMessage(tid, selfId, pid, msg.pickle.value)
 
-  def createResponseMessage(r: Response)(implicit request: PluginMessage, remote: InetSocketAddress): SendPluginMessage = {
-    SendPluginMessage(new SearchPluginMessage(request.tid, r), new Node(request.id, remote))
+  def createResponseMessage(msg: SearchMessage)(implicit request: PluginMessage, remote: InetSocketAddress): SendPluginMessage = {
+    SendPluginMessage(new SearchPluginMessage(request.tid, msg), new Node(request.id, remote))
   }
 }
 
@@ -205,7 +231,7 @@ object SearchPlugin {
   final case class SearchFinished(searchString: String) extends Response
 
   // XXX: incorporate this into DHT error handling mechanism
-  final case class Error(code: Int, text: String) extends Response
+  //final case class Error(code: Int, text: String) extends Response
   
   class IndexManagerActor(indexManager: IndexManager) extends Actor with ActorLogging {
     import IndexManagerActor._

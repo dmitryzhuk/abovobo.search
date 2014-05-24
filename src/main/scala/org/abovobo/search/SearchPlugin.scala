@@ -37,14 +37,9 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   import SearchPlugin._
   
   val announceWidth = 10
-  val searchWidth = 10
   val announceTtl = 3
-  val searchTtl = 3
   val random = new Random()
 
-
-  // XXX: to params?
-  /// searchString -> SearchOperations
   val currentRequests: TransactionManager[TID, SearchOperation] = new TransactionManager(this.context.system.scheduler, 5.seconds, { (id) => self ! SearchTimeout(id) })
   val tidFactory = new TIDFactory
 
@@ -83,7 +78,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     // 
     case Announce(item) => announce(item, announceTtl)
     
-    case Lookup(searchString) => SearchOperation.start(searchString, new DirectResponder(sender), searchTtl)
+    case Lookup(searchString) => SearchOperation.start(searchString, new DirectResponder(sender))
 
     // 
     // Messages from internal services/self
@@ -153,7 +148,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     private def searchInNetwork(ttl: Int): Traversable[Node] = {
       val msg = new SearchPluginMessage(tid, SearchNetworkCommand(Lookup(searchString), ttl.toByte))
       
-      val nodes = randomNodes(searchWidth)
+      val nodes = randomNodes(SearchOperation.SearchWidth)
       nodes foreach { n => 
         dhtController ! SendPluginMessage(msg, n)
       }
@@ -187,7 +182,10 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   }
   
   object SearchOperation {
-    def start(searchString: String, responder: Responder, ttl: Int): SearchOperation = {
+    val SearchTtl = 3
+    val SearchWidth = 10
+        
+    def start(searchString: String, responder: Responder, ttl: Int = SearchTtl): SearchOperation = {
       val tid = tidFactory.next
       val search = new SearchOperation(tid, searchString, responder)
   
@@ -201,7 +199,6 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
       }
       search
     }
-
   }
   
   // utilities for controller communication

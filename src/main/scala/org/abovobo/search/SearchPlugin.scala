@@ -49,133 +49,82 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   val tidFactory = new TIDFactory
 
   override def receive = {
-    case Controller.Received(message, remote) =>
-      message match {
-        case pluginMessage: PluginMessage => {
-          implicit val pm = pluginMessage
-          implicit val rm = remote
-          
-          pluginMessage.payloadBytes.unpickle[SearchMessage] match {
-            case SearchNetworkCommand(cmd, ttl) => {
-              this.log.debug("Got command: " + cmd)
-
-              cmd match {
-                case Announce(item) => announce(item, ttl)
-                case Lookup(searchString) => {
-                  val responder = new NetworkResponder(new Node(pluginMessage.id, remote), pluginMessage)
-                  search(searchString, responder, ttl)
-                }
+    //
+    // Message from network
+    ///
+    case Controller.Received(message: PluginMessage, remote) => {
+      val searchMessage = message.payloadBytes.unpickle[SearchMessage]
+      log.debug("Got network message from " + remote + ": "  + searchMessage)
+      
+      searchMessage match {
+        case SearchNetworkCommand(cmd, ttl) => cmd match {
+          case Announce(item) => announce(item, ttl)
+          case Lookup(searchString) => SearchOperation.start(searchString, new NetworkResponder(message.tid, new Node(message.id, remote)), ttl)
+        }
+       
+        case response: Response => currentRequests.get(message.tid) match {
+          case Some(search) =>
+            response match {
+              case FoundItems(searchString, items) => search.addResults(message.id, items)
+              case SearchFinished(searchString) => search.finishForNode(message.id)
+              case Error(code, error) => {
+                log.error("error message from " + message.id + "@" + remote + ": " + error)
+                search.finishForNode(message.id)
               }
             }
-            case response: Response => {
-              currentRequests.get(pluginMessage.tid) match {
-                case Some(search) =>
-                  response match {
-                    case FoundItems(searchString, items) => reportResults(search, pluginMessage.id, items)
-                    case SearchFinished(searchString) => finishSearch(search, pluginMessage.id)
-                  }
-                case None => log.info("netrowk response from " + remote + " for unknown/expired request: " + pluginMessage.tid + ", " + response)
-              }
-            }
-            case _ => throw new IllegalStateException("command should be always wrapped into network command")
-          }
-        } // case PluginMessage
-        case _ => this.log.error("Wrong message type recieved from DHT Controller")
+          case None => log.warning("unexpected network response from " + remote + " for unknown/expired request: " + message.tid + ", " + response)
+        }
+        case _ => throw new IllegalStateException("command should be always wrapped into network command")
       }
-            
+    }
+    
+    // 
+    // Messages from local service user
+    // 
     case Announce(item) => announce(item, announceTtl)
     
-    case Lookup(searchString) => search(searchString, new DirectResponder(sender), searchTtl)
-    
-    case IndexManagerResponse(tid, response) => response match {
-        case FoundItems(searchString, refs) => currentRequests.get(tid) match {
-            case Some(search) => {
-              log.debug("Local response: " + response)
-              reportResults(search, selfId, refs)
-            }
-            case None => log.info("local response for unknown/expired request: " + tid + ", " + response)
+    case Lookup(searchString) => SearchOperation.start(searchString, new DirectResponder(sender), searchTtl)
+
+    // 
+    // Messages from internal services/self
+    //
+    case IndexManagerResponse(tid, response) => { 
+      currentRequests.get(tid) match {
+        case Some(search) => {
+          log.debug("Local response: " + response)
+          response match {
+            case FoundItems(searchString, refs) => search.addResults(selfId, refs)
+            case Error(code, message) => log.error("Error from local index: " + code + ", " + message)
+            case SearchFinished(searchString) => // shouldn't happen
+          }
+          search.finishForNode(selfId)
         }
-        case _ => throw new IllegalStateException
+        case None => log.info("local response for unknown/expired request: " + tid + ", " + response)
+      }      
     }
       
-    case SearchTimeout(tid) => currentRequests.fail(tid) match {
-      case Some(search) => {
-        log.debug("finishing search " + tid + " " + search.searchString + " by timeout. Not responded: " + search.pendingQueries.size)
-        search.finish() 
-      }
-      case None => log.info("timeout for unknown/expired request: " + tid)
-    }
-
-    // XXX: 
-    // here it should be like
-    // case error: Error => 
-    // from Controller. Or something like that
+    case SearchTimeout(tid) => currentRequests.fail(tid) foreach(_.timeout)
   }
   
   def announce(item: ContentItem, ttl: Int) {
     indexManager ! IndexManagerCommand(tidFactory.next, Announce(item))
     if (ttl > 1)  {
+      def announceToNetwork(item: ContentItem, ttl: Int) {
+        val msg = SearchNetworkCommand(Announce(item), ttl.toByte)
+        val tid = tidFactory.next
+        val pm = new SearchPluginMessage(tid, msg)      
+        
+        randomNodes(announceWidth) foreach { n =>
+          dhtController ! SendPluginMessage(pm, n)
+        }
+      }      
       announceToNetwork(item, ttl - 1)
     }
   }
-  
-  def announceToNetwork(item: ContentItem, ttl: Int) {
-    val msg = SearchNetworkCommand(Announce(item), ttl.toByte)
-    val tid = tidFactory.next
-    val pm = new SearchPluginMessage(tid, msg)      
     
-    randomNodes(announceWidth) foreach { n =>
-      dhtController ! SendPluginMessage(pm, n)
-    }
-  }
-  
-  def search(searchString: String, responder: Responder, ttl: Int) {
-    val tid = tidFactory.next
-    val search = new SearchOperation(tid, searchString, responder)
-
-    currentRequests.add(tid, search)
-    
-    indexManager ! IndexManagerCommand(tid, Lookup(searchString))
-    
-    if (ttl > 1) {
-      val queriedNodes = searchInNetwork(search, ttl - 1).map(_.id)
-      search.pendingQueries ++= queriedNodes
-    }
-  }
-  
-  def searchInNetwork(search: SearchOperation, ttl: Int): Traversable[Node] = {
-    val msg = new SearchPluginMessage(search.tid, SearchNetworkCommand(Lookup(search.searchString), ttl.toByte))
-    
-    val nodes = randomNodes(searchWidth)
-    nodes foreach { n => 
-      dhtController ! SendPluginMessage(msg, n)
-    }
-    nodes
-  }
-  
   def randomNodes(count: Int): Traversable[Node] = {
     random.shuffle(dhtTable.nodes).take(count)
   }
-  
-  def reportResults(search: SearchOperation, from: Integer160, items: Traversable[ContentRef]) = {
-    val uniqueResults = items.filterNot { i=> search.reportedResults.contains(i.id) }
-
-    if (!uniqueResults.isEmpty) {
-      search.respond(FoundItems(search.searchString, uniqueResults))    
-      search.reportedResults ++= uniqueResults.map(_.id)      
-    }
-  }
-  
-  def finishSearch(search: SearchOperation, from: Integer160) {
-    search.pendingQueries -= from
-    
-    if (search.pendingQueries.isEmpty) {
-      // finish search, cleanup
-      search.finish()
-      currentRequests.complete(search.tid)
-    }    
-  }
-  
   
   // private messages
   case class SearchNetworkCommand(cmd: Command, ttl: Byte) extends SearchMessage
@@ -188,28 +137,78 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   class DirectResponder(sender: ActorRef) extends Responder {
     def apply(response: Response) = sender ! response 
   }
-  class NetworkResponder(sender: Node, request: PluginMessage) extends Responder {
-    def apply(response: Response) = dhtController ! createResponseMessage(response)(request, sender.address)
+  class NetworkResponder(tid: TID, sender: Node) extends Responder {
+    def apply(response: Response) = dhtController ! createResponseMessage(tid, sender, response)
   }
   
-  class SearchOperation(
+  class SearchOperation private (
       val tid: TID,
       val searchString: String,
-      val respond: Response => Any) {
-    val pendingQueries: mutable.Set[Integer160] = HashSet(selfId)
-    val reportedResults: mutable.Set[String] = HashSet()
-    val pendingResults: mutable.Set[ContentRef] = HashSet()    
+      respond: Response => Any) {
     
-    def finish() = respond(SearchFinished(searchString))
+    private val pendingNodes: mutable.Set[Integer160] = HashSet(selfId)
+    private val reportedResults: mutable.Set[String] = HashSet()
+    private val pendingResults: mutable.Set[ContentRef] = HashSet()    
+
+    private def searchInNetwork(ttl: Int): Traversable[Node] = {
+      val msg = new SearchPluginMessage(tid, SearchNetworkCommand(Lookup(searchString), ttl.toByte))
+      
+      val nodes = randomNodes(searchWidth)
+      nodes foreach { n => 
+        dhtController ! SendPluginMessage(msg, n)
+      }
+      nodes
+    }
+    
+    def addResults(from: Integer160, items: Traversable[ContentRef]) = {
+      val uniqueResults = items.filterNot { i => reportedResults.contains(i.id) }
+  
+      /// !!! TODO: use search.pendingResults to accumulate results here and fire them in bunches to requester (like each 1 second, or something else) to avoid excessive traffic
+      
+      if (!uniqueResults.isEmpty) {
+        respond(FoundItems(searchString, uniqueResults))    
+        reportedResults ++= uniqueResults.map(_.id)      
+      }
+    }
+    
+    def finishForNode(node: Integer160) {      
+      if ((pendingNodes -= node).isEmpty) {
+        finish()
+        currentRequests.complete(tid)
+      }    
+    } 
+    
+    def finish() { respond(SearchFinished(searchString)) }
+    
+    def timeout() {
+        log.debug("finishing search " + tid + " " + searchString + " by timeout. Not responded: " + pendingNodes.size)
+        finish()
+    }    
+  }
+  
+  object SearchOperation {
+    def start(searchString: String, responder: Responder, ttl: Int): SearchOperation = {
+      val tid = tidFactory.next
+      val search = new SearchOperation(tid, searchString, responder)
+  
+      currentRequests.add(tid, search)
+      
+      indexManager ! IndexManagerCommand(tid, Lookup(searchString))
+      
+      if (ttl > 1) {
+        val queriedNodes = search.searchInNetwork(ttl - 1).map(_.id)
+        search.pendingNodes ++= queriedNodes
+      }
+      search
+    }
+
   }
   
   // utilities for controller communication
 
   class SearchPluginMessage(tid: TID, msg: SearchMessage) extends PluginMessage(tid, selfId, pid, msg.pickle.value)
 
-  def createResponseMessage(msg: SearchMessage)(implicit request: PluginMessage, remote: InetSocketAddress): SendPluginMessage = {
-    SendPluginMessage(new SearchPluginMessage(request.tid, msg), new Node(request.id, remote))
-  }
+  def createResponseMessage(tid: TID, to: Node, msg: Response) = SendPluginMessage(new SearchPluginMessage(tid, msg), to)
 }
 
 object SearchPlugin {
@@ -231,7 +230,7 @@ object SearchPlugin {
   final case class SearchFinished(searchString: String) extends Response
 
   // XXX: incorporate this into DHT error handling mechanism
-  //final case class Error(code: Int, text: String) extends Response
+  final case class Error(code: Int, text: String) extends Response
   
   class IndexManagerActor(indexManager: IndexManager) extends Actor with ActorLogging {
     import IndexManagerActor._

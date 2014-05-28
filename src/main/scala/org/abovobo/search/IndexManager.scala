@@ -70,9 +70,9 @@ object IndexManager {
   
   sealed trait OfferResponse
   
-  case class Accepted extends OfferResponse
-  case class AlreadyHave extends OfferResponse
-  case class RejectedNoSpace extends OfferResponse
+  case object Accepted extends OfferResponse
+  case object AlreadyHave extends OfferResponse
+  case object RejectedNoSpace extends OfferResponse
   
   //case class RejectedBadContent extends OfferResponse  
 }

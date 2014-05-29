@@ -38,6 +38,7 @@ import java.util.concurrent.TimeoutException
 import akka.pattern.ask
 import akka.util.Timeout
 import scala.concurrent.Await
+import org.abovobo.dht.Controller.PutPlugin
 
 
 
@@ -51,7 +52,10 @@ object SearchPluginSmokeTest extends App {
     "akka.actor.debug.unhandled" -> true))
     
     
-  case class NodeSystem(endpoint: InetSocketAddress, table: ActorRef, agent: ActorRef, controller: ActorRef, system: ActorSystem, storage: H2Storage) extends Disposable {
+  def localEndpoint(ordinal: Int) = new InetSocketAddress(InetAddress.getLocalHost, 20000 + ordinal)
+
+  case class NodeSystem(ordinal: Int, table: ActorRef, agent: ActorRef, controller: ActorRef, system: ActorSystem, storage: H2Storage) extends Disposable {
+    val endpoint: InetSocketAddress = localEndpoint(ordinal)
     def dispose() {
         system.shutdown()
         system.awaitTermination()
@@ -59,7 +63,6 @@ object SearchPluginSmokeTest extends App {
     }
   }
   
-  def localEndpoint(ordinal: Int) = new InetSocketAddress(InetAddress.getLocalHost, 20000 + ordinal)
     
   def createNode(ordinal: Int, routers: List[InetSocketAddress] = List()): NodeSystem = {
       val h2 = H2Storage.open("~/db/dht-" + ordinal, true) 
@@ -69,23 +72,40 @@ object SearchPluginSmokeTest extends App {
     val writer: Writer = h2
       
     val system = ActorSystem("TestSystem-" + ordinal, systemConfig)
-    
-    val table = system.actorOf(Table.props(reader, writer), "table")    
+
     val agent = system.actorOf(Props(classOf[Agent], localEndpoint(ordinal), 10 seconds), "agent")
     val controller = system.actorOf(Controller.props(routers, reader, writer), "controller")
+    val table = system.actorOf(Table.props(reader, writer), "table")    
   
-    NodeSystem(localEndpoint(ordinal), table, agent, controller, system, h2)
+    NodeSystem(ordinal, table, agent, controller, system, h2)
   }
-  
+    
+  def createSearchPlugin(node: NodeSystem) = {
+    val indexManager = node.system.actorOf(Props(classOf[IndexManagerActor], 
+        new IndexManager(10, new InMemoryContentIndex(), new IndexManagerRegistry("jdbc:h2:~/db/search-" + node.ordinal))), "indexManager")
+        
+    val searchPlugin = node.system.actorOf(SearchPlugin.props(node.storage.id.get, node.controller, indexManager, node.storage), "search")
+
+    indexManager ! IndexManagerActor.Clear 
+    
+    node.controller ! PutPlugin(Plugin.SearchPluginId, searchPlugin)
+    
+    searchPlugin
+  }
+    
   val node = createNode(1)
+
+  Thread.sleep(5 * 1000)
+
+  val node2 = createNode(2, List(node.endpoint))
+
+  Thread.sleep(5 * 1000)
+
+  val node3 = createNode(3, List(node.endpoint))
   
-  //val routerEndpoints = List(localEndpoint(1))
-  val indexManager = node.system.actorOf(Props(classOf[IndexManagerActor], 
-      new IndexManager(10, new InMemoryContentIndex(), new IndexManagerRegistry("jdbc:h2:~/db/search"))), "indexManager")
-      
-  val searchPlugin = node.system.actorOf(SearchPlugin.props(node.storage.id.get, node.controller, indexManager, node.storage), "search")
   
-  indexManager ! IndexManagerActor.Clear
+  val searchPlugin = createSearchPlugin(node)
+  val searchPlugin2 = createSearchPlugin(node2)
   
   val id = Integer160.random.toString
 
@@ -101,14 +121,14 @@ object SearchPluginSmokeTest extends App {
     }    
   }
   
-  def announce(item: ContentItem) {
+  def announce(search: ActorRef, item: ContentItem) {
     //val res = Await.result(searchPlugin ask Announce(item), timeoutDuration)
-    searchPlugin ! Announce(item)
+    search ! Announce(item)
     println("announcing: " + item) 
     //println("response: " + res)
   }
-  def search(text: String) {
-    searchPlugin.tell(Lookup(text), inbox.getRef)  
+  def search(search: ActorRef, text: String) {
+    search.tell(Lookup(text), inbox.getRef)  
     
     def recvResult() { 
       receive() match {
@@ -125,27 +145,48 @@ object SearchPluginSmokeTest extends App {
   }
   
   
-  val first = new ContentItem(id, "long title", "good description", 1025)
-  val second = new ContentItem(Integer160.random.toString, "short title 2", "very good description", 1026)
+//  val first = new ContentItem(id, "long title", "good description", 1025)
+//  val second = new ContentItem(Integer160.random.toString, "short title 2", "very good description", 1026)
+//  
+//  announce(searchPlugin, first)  
+//  announce(searchPlugin, second)
+//  
+//  search(searchPlugin, "good")
+//  search(searchPlugin, "long")
+//  search(searchPlugin, "1025 bytes")
+//  
+//  println("-------------------------")
+//  
+//  search(searchPlugin2, "good")
   
-  announce(first)  
-  announce(second)
+ 
+  Thread.sleep(5 * 1000)
+
+  println("node1 node list: " + node.storage.id + "@" + node.endpoint)
+  node.storage.nodes.foreach(println)
+
+  println("node2 node list: " + node2.storage.id + "@" + node2.endpoint)
+  node2.storage.nodes.foreach(println)
+
   
-  search("good")
-  search("long")
-  search("1025 bytes")
-  
+  println("node3 node list: " + node3.storage.id + "@" + node3.endpoint)
+  node2.storage.nodes.foreach(println)
+
   
   // fill the index
   
-  for (i <- 1 to 20) {
-    announce(new ContentItem(Integer160.random.toString, "title" + i, "description" + i, 1024 + i))   
-  }
+//  for (i <- 1 to 20) {
+//    announce(new ContentItem(Integer160.random.toString, "title" + i, "description" + i, 1024 + i))   
+//  }
+//  
+//  announce(first)  
+//  announce(second)
   
-  announce(first)  
-  announce(second)
+  Thread.sleep(2 * 1000)
 
   
   node.dispose()
+  node2.dispose()
+  node3.dispose()
 
 }

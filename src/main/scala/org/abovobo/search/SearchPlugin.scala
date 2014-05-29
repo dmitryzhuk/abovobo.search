@@ -202,8 +202,13 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   }
   
   // utilities for controller communication
+  
+  def serializeMessage(msg: SearchMessage): Array[Byte] = {
+    // somehow this call breaks jvm code verification when inline...
+    msg.pickle.value 
+  }
 
-  class SearchPluginMessage(tid: TID, msg: SearchMessage) extends PluginMessage(tid, selfId, pid, msg.pickle.value)
+  class SearchPluginMessage(tid: TID, msg: SearchMessage) extends PluginMessage(tid, selfId, pid, serializeMessage(msg))
 
   def createResponseMessage(tid: TID, to: Node, msg: Response) = SendPluginMessage(new SearchPluginMessage(tid, msg), to)
 }
@@ -236,24 +241,18 @@ object SearchPlugin {
     
     override def receive = {
       case IndexManagerCommand(id, cmd) => cmd match {
-        case Announce(item) =>
-          indexManager.offer(item)
-        case Lookup(searchString) =>
-          sender ! IndexManagerResponse(id, FoundItems(searchString, indexManager.search(searchString)))           
+        case Announce(item) => indexManager.offer(item)
+        case Lookup(searchString) => sender ! IndexManagerResponse(id, FoundItems(searchString, indexManager.search(searchString)))           
       }
       case ScheduleCleanup =>
-        log.debug("ScheduleCleanup")
         if (indexManager.cleanupNeeded) {
-          context.system.scheduler.scheduleOnce(15 seconds, self, Cleanup)
+          context.system.scheduler.scheduleOnce(30 seconds, self, Cleanup)
         }
       case Cleanup => {
-        log.debug("Cleanup")
         indexManager.cleanup()
         context.system.scheduler.scheduleOnce(1 day, self, Cleanup)        
       }
-      case Clear =>
-        log.debug("Clear")
-        indexManager.clear()
+      case Clear => indexManager.clear()
     }
     
     // schedule cleanup routine

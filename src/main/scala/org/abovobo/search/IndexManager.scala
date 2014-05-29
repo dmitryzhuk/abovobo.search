@@ -24,7 +24,7 @@ class IndexManager(val maxItemsCount: Int, ci: ContentIndex, reg: IndexManagerRe
       case Some(stats) => {
         val updated = stats.copy(announces = stats.announces + 1, lastAnnounced = System.currentTimeMillis)
         reg.update(updated)
-        AlreadyHave()
+        AlreadyHave
       }
       case None => {
         // new item for us to consider
@@ -32,9 +32,9 @@ class IndexManager(val maxItemsCount: Int, ci: ContentIndex, reg: IndexManagerRe
           // we always add new items if there's a space
           ci.add(item)
           reg.add(ContentItemStats(item.id, 0, 1))
-          Accepted()
+          Accepted
         } else {
-          RejectedNoSpace()
+          RejectedNoSpace
         }
       }
     }

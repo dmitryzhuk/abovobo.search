@@ -72,10 +72,11 @@ object SearchPluginSmokeTest extends App {
     val writer: Writer = h2
       
     val system = ActorSystem("TestSystem-" + ordinal, systemConfig)
-
-    val agent = system.actorOf(Props(classOf[Agent], localEndpoint(ordinal), 10 seconds), "agent")
+    
     val controller = system.actorOf(Controller.props(routers, reader, writer), "controller")
-    val table = system.actorOf(Table.props(reader, writer), "table")    
+    val agent = system.actorOf(Agent.props(localEndpoint(ordinal), 10 seconds, controller), "agent")
+    val table = system.actorOf(Table.props(reader, writer, controller), "table")    
+
   
     NodeSystem(ordinal, table, agent, controller, system, h2)
   }

@@ -26,10 +26,14 @@ import akka.actor.Actor
 import org.abovobo.search.SearchPlugin.IndexManagerActor._
 import akka.actor.Props
 import scala.util.Random
+import scala.collection.mutable.ArraySeq
+import scala.collection.mutable.ArraySeq
+import akka.serialization.SerializationExtension
 
-class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef, indexManager: ActorRef, dhtTable: Reader) extends Plugin(pid) with ActorLogging {
-  import scala.pickling._
-  import scala.pickling.binary._
+class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[Node]) extends Plugin(pid) with ActorLogging {
+  //import scala.pickling._
+  //import scala.pickling.json._
+  //import scala.pickling.binary._
   import SearchPlugin._
 
   val system = this.context.system
@@ -48,7 +52,17 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     // Message from network
     ///
     case Controller.Received(message: PluginMessage, remote) => {
-      val searchMessage = message.payloadBytes.unpickle[SearchMessage]
+      val searchMessage = try { 
+        
+        deserializeMessage(message.payloadBytes)
+         
+        //new String(message.payloadBytes, "UTF-8").unpickle[SearchMessage]
+        
+      } catch {
+        case e: Throwable =>
+          log.warning("Cannot parse network message: \n{}\nException: {}", new String(message.payloadBytes), e)
+          throw e
+      }
       log.debug("Got network message from " + remote + ": "  + searchMessage)
       
       searchMessage match {
@@ -118,12 +132,9 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   }
     
   def randomNodes(count: Int): Traversable[Node] = {
-    random.shuffle(dhtTable.nodes).take(count)
+    random.shuffle(dhtNodes()).take(count)
   }
   
-  // private messages
-  case class SearchNetworkCommand(cmd: Command, ttl: Byte) extends SearchMessage
-  case class SearchTimeout(tid: TID)
   
   /// active searches state
   
@@ -155,13 +166,13 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
       nodes
     }
     
-    def addResults(from: Integer160, items: Traversable[ContentRef]) = {
+    def addResults(from: Integer160, items: Set[ContentRef]) = {
       val uniqueResults = items.filterNot { i => reportedResults.contains(i.id) }
   
       /// !!! TODO: use search.pendingResults to accumulate results here and fire them in bunches to requester (like each 1 second, or something else) to avoid excessive traffic
       
       if (!uniqueResults.isEmpty) {
-        respond(FoundItems(searchString, uniqueResults))    
+        respond(FoundItems(searchString, uniqueResults))
         reportedResults ++= uniqueResults.map(_.id)      
       }
     }
@@ -201,11 +212,18 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     }
   }
   
+  val serialization = SerializationExtension(system)
+  val serializer = serialization.findSerializerFor(Lookup("dummy"))
+
   // utilities for controller communication
+  def deserializeMessage(arr: Array[Byte]): SearchMessage = {
+    serializer.fromBinary(arr).asInstanceOf[SearchMessage]
+  }
   
   def serializeMessage(msg: SearchMessage): Array[Byte] = {
     // somehow this call breaks jvm code verification when inline...
-    msg.pickle.value 
+    //msg.pickle.value.getBytes("UTF-8") 
+    serializer.toBinary(msg)
   }
 
   class SearchPluginMessage(tid: TID, msg: SearchMessage) extends PluginMessage(tid, selfId, pid, serializeMessage(msg))
@@ -214,8 +232,8 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
 }
 
 object SearchPlugin {
-  def props(selfId: Integer160, dhtController: ActorRef, indexManager: ActorRef, dhtTable: Reader) = 
-    Props(classOf[SearchPlugin], selfId, Plugin.SearchPluginId, dhtController, indexManager, dhtTable)
+  def props(selfId: Integer160, dhtController: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[Node]) = 
+    Props(classOf[SearchPlugin], selfId, Plugin.SearchPluginId, dhtController, indexManager, dhtNodes)
   
   sealed trait SearchMessage
 
@@ -227,7 +245,7 @@ object SearchPlugin {
   sealed trait Response extends SearchMessage
 
   //final case class AnnounceResult(itemId: CID, result: IndexManager.OfferResponse) extends Response
-  final case class FoundItems(searchString: String, found: Traversable[ContentRef]) extends Response
+  final case class FoundItems(searchString: String, found: Set[ContentRef]) extends Response
   
   final case class SearchFinished(searchString: String) extends Response
 
@@ -266,32 +284,54 @@ object SearchPlugin {
     case class IndexManagerResponse(id: TID, response: Response)
     case object Clear
   }
+  
+    // private messages
+  case class SearchNetworkCommand(cmd: Command, ttl: Byte) extends SearchMessage
+  case class SearchTimeout(tid: TID)
 }
 
-object PickleApp extends App {
-  import SearchPlugin._
-
-  import scala.pickling._
-  import scala.pickling.binary._
-
-  val a = Announce(new ContentItem(
-    Integer160.random.toString,
-    "Not very long title with year 2014",
-    "Also not very long description, we should expect it to be way much longer",
-    1024))
-
-  val l = Lookup("futurama")
-
-  val coms: List[Command] = List(a, l)
-
-  val pp = coms.pickle
-
-  val vv = pp.value
-
-  println("size: " + vv.length + ", data: " + vv)
-
-  vv.unpickle[List[Command]].foreach {
-    case Announce(item) => println("announce: " + item)
-    case Lookup(text) => println("lookup :" + text)
-  }
-}
+//object PickleApp extends App {
+//  import SearchPlugin._
+//
+//  import scala.pickling._
+//  import scala.pickling.binary._
+//
+//  val a = Announce(new ContentItem(
+//    Integer160.random.toString,
+//    "Not very long title with year 2014",
+//    "Also not very long description, we should expect it to be way much longer",
+//    1024))
+//
+//  val l = Lookup("futurama")
+//  
+//  var coms: List[SearchMessage] = List(a, l)
+//
+//
+//  for (i <- 1 to 6) {
+//    var items = Array[ContentRef]()
+//    for (j <- 0 until i) {
+//      items = items ++ Array(ContentIndex.SimpleContentRef(Integer160.random.toString, "random title"))
+//    }
+//    
+//    coms ::= FoundItems("test" + i, items)
+//  }
+//  
+////  val items = List(
+////      //new ContentIndex.SimpleContentRef(Integer160.random.toString, "random title"),
+////      new ContentIndex.SimpleContentRef(Integer160.random.toString, "random title 2")
+////      )
+//  
+//  //val f = FoundItems("test", items)
+//
+//  val pp = coms.pickle
+//
+//  val vv = pp.value
+//
+//  println("size: " + vv.length + ", data: " + new String(vv))
+//
+//  vv.unpickle[List[SearchMessage]].foreach {
+//    case Announce(item) => println("announce: " + item)
+//    case Lookup(text) => println("lookup :" + text)
+//    case FoundItems(text, items) => println("found: " + items)
+//  }
+//}

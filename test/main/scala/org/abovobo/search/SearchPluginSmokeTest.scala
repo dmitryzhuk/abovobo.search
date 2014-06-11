@@ -39,6 +39,8 @@ import akka.pattern.ask
 import akka.util.Timeout
 import scala.concurrent.Await
 import org.abovobo.dht.Controller.PutPlugin
+import org.abovobo.dht.DhtNode
+import scala.util.Random
 
 
 
@@ -51,143 +53,113 @@ object SearchPluginSmokeTest extends App {
     "akka.actor.debug.receive" -> true,
     "akka.actor.debug.unhandled" -> true))
     
-    
   def localEndpoint(ordinal: Int) = new InetSocketAddress(InetAddress.getLocalHost, 20000 + ordinal)
-
-  case class NodeSystem(ordinal: Int, table: ActorRef, agent: ActorRef, controller: ActorRef, system: ActorSystem, storage: H2Storage) extends Disposable {
-    val endpoint: InetSocketAddress = localEndpoint(ordinal)
-    def dispose() {
-        system.shutdown()
-        system.awaitTermination()
-        storage.close()     
-    }
-  }
   
-    
-  def createNode(ordinal: Int, routers: List[InetSocketAddress] = List()): NodeSystem = {
-      val h2 = H2Storage.open("~/db/dht-" + ordinal, true) 
-
-    val storage: Storage = h2
-    val reader: Reader = h2
-    val writer: Writer = h2
-      
-    val system = ActorSystem("TestSystem-" + ordinal, systemConfig)
-    
-    val controller = system.actorOf(Controller.props(routers, reader, writer), "controller")
-    val agent = system.actorOf(Agent.props(localEndpoint(ordinal), 10 seconds, controller), "agent")
-    val table = system.actorOf(Table.props(reader, writer, controller), "table")    
-
+  val system = ActorSystem("TestSystem", systemConfig)
+  val timeoutDuration: FiniteDuration = 7 seconds
+  implicit val timeout: Timeout = timeoutDuration
   
-    NodeSystem(ordinal, table, agent, controller, system, h2)
+  def createNode(ordinal: Int, routers: List[InetSocketAddress] = List()): ActorRef = {
+    system.actorOf(DhtNode.props(localEndpoint(ordinal), routers), "Node-" + ordinal.toString)
   }
     
-  def createSearchPlugin(node: NodeSystem) = {
-    val indexManager = node.system.actorOf(Props(classOf[IndexManagerActor], 
-        new IndexManager(10, new InMemoryContentIndex(), new IndexManagerRegistry("jdbc:h2:~/db/search-" + node.ordinal))), "indexManager")
+  def addSearchPlugin(node: ActorRef): ActorRef = {
+    
+    val info = Await.result(node ? DhtNode.Describe, timeoutDuration).asInstanceOf[DhtNode.NodeInfo]
+    
+    val indexManager = system.actorOf(Props(classOf[IndexManagerActor], 
+        new IndexManager(10, new InMemoryContentIndex(), new IndexManagerRegistry("jdbc:h2:~/db/search-" + node.path.name))), node.path.name + "-indexManager")
         
-    val searchPlugin = node.system.actorOf(SearchPlugin.props(node.storage.id.get, node.controller, indexManager, node.storage), "search")
+    val searchPlugin = system.actorOf(SearchPlugin.props(info.self.id, info.controller, indexManager, { () =>
+      Await.result(node ? DhtNode.Describe, 5 seconds).asInstanceOf[DhtNode.NodeInfo].nodes
+    }), node.path.name + "-search")
 
     indexManager ! IndexManagerActor.Clear 
     
-    node.controller ! PutPlugin(Plugin.SearchPluginId, searchPlugin)
+    info.controller ! PutPlugin(Plugin.SearchPluginId, searchPlugin)
     
     searchPlugin
   }
-    
-  val node = createNode(1)
-
-  Thread.sleep(5 * 1000)
-
-  val node2 = createNode(2, List(node.endpoint))
-
-  Thread.sleep(5 * 1000)
-
-  val node3 = createNode(3, List(node.endpoint))
   
+  val epnodes = DhtNode.spawnNodes(system, 20000, 4)
+  val nodes = epnodes.map { _._2 }
   
-  val searchPlugin = createSearchPlugin(node)
-  val searchPlugin2 = createSearchPlugin(node2)
+  val searchPlugins = nodes map { node => node -> addSearchPlugin(node) }
+
+  println("--------- waiting -------")
   
-  val id = Integer160.random.toString
+  Thread.sleep(7 * 1000)
 
-  val timeoutDuration: FiniteDuration = 7 seconds
-  implicit val timeout: Timeout = timeoutDuration
-  val inbox = Inbox.create(node.system)
-
-  def receive() = {
-    try {
-      inbox.receive(timeoutDuration)
-    } catch {
-      case e: TimeoutException => e
-    }    
+  
+  val first = new ContentItem(Integer160.random.toString, "long title", "good description", 1025)
+  val second = new ContentItem(Integer160.random.toString, "short title 2", "very good description", 1026)
+  
+  val rnd = new Random
+  
+  def syncask(target: ActorRef, message: Any): Any = {
+    Await.result(target ? message, 10 seconds)
   }
   
-  def announce(search: ActorRef, item: ContentItem) {
-    //val res = Await.result(searchPlugin ask Announce(item), timeoutDuration)
-    search ! Announce(item)
-    println("announcing: " + item) 
-    //println("response: " + res)
-  }
-  def search(search: ActorRef, text: String) {
-    search.tell(Lookup(text), inbox.getRef)  
+  def search(text: String)(implicit search: ActorRef): Set[ContentIndex.ContentRef] = {
+    val inbox = Inbox.create(system)
+    var result = Set.empty[ContentIndex.ContentRef]
+      
+    def receive() = {
+      try {
+        inbox.receive(timeoutDuration)
+      } catch {
+        case e: TimeoutException => e
+      }    
+    }
     
-    def recvResult() { 
+    def recvResult(): Set[ContentIndex.ContentRef] =  { 
       receive() match {
-        case e: TimeoutException => println("Cannot get result: " + e.getMessage)
-        case SearchFinished(text) => {
-          println("search finished " + text)
-        }
-        case res: Any => 
-          println("search for " + text + " res: " + res)
+        case e: TimeoutException => println("Cannot get result: " + e.getMessage); result
+        case SearchFinished(text) => result
+        case FoundItems(text, items) => 
+          result ++= items.toSet
           recvResult()
       }
     }
+    
+    search.tell(Lookup(text), inbox.getRef)  
+
     recvResult()
+  }  
+  
+  val announceGroup = rnd.shuffle(searchPlugins).take(1)
+  
+  announceGroup.foreach { case (node, search) =>
+    search ! SearchPlugin.Announce(first)
+    search ! SearchPlugin.Announce(second)
   }
   
   
-//  val first = new ContentItem(id, "long title", "good description", 1025)
-//  val second = new ContentItem(Integer160.random.toString, "short title 2", "very good description", 1026)
-//  
-//  announce(searchPlugin, first)  
-//  announce(searchPlugin, second)
-//  
-//  search(searchPlugin, "good")
-//  search(searchPlugin, "long")
-//  search(searchPlugin, "1025 bytes")
-//  
-//  println("-------------------------")
-//  
-//  search(searchPlugin2, "good")
+  rnd.shuffle(searchPlugins).take(1).foreach { case (node, sp) =>
+    def testSearch(text: String) = {
+      val res = search(text)(sp)
+      println("Search result for " + text + ": " + res)
+    }
+    
+    testSearch("good")
+    testSearch("long")
+    testSearch("1025 bytes")
+  }  
   
+  println("-------------------------")
  
   Thread.sleep(5 * 1000)
-
-  println("node1 node list: " + node.storage.id + "@" + node.endpoint)
-  node.storage.nodes.foreach(println)
-
-  println("node2 node list: " + node2.storage.id + "@" + node2.endpoint)
-  node2.storage.nodes.foreach(println)
-
   
-  println("node3 node list: " + node3.storage.id + "@" + node3.endpoint)
-  node2.storage.nodes.foreach(println)
-
+  nodes.foreach { node =>
+    
+    val info = Await.result(node ? DhtNode.Describe, timeoutDuration).asInstanceOf[DhtNode.NodeInfo]
+    
+    println("dht table for: " + info.self.id + "@" + info.self.address)
+    info.nodes.foreach { entry => println("\t" + entry)}
+  }    
   
-  // fill the index
-  
-//  for (i <- 1 to 20) {
-//    announce(new ContentItem(Integer160.random.toString, "title" + i, "description" + i, 1024 + i))   
-//  }
-//  
-//  announce(first)  
-//  announce(second)
-  
-  Thread.sleep(2 * 1000)
-
-  
-  node.dispose()
-  node2.dispose()
-  node3.dispose()
-
+  Thread.sleep(1000)
+  nodes foreach { node => node ! DhtNode.Dispose } 
+  Thread.sleep(1000)
+  system.shutdown()
 }

@@ -7,7 +7,7 @@ import org.abovobo.search.IndexManagerRegistry.ContentItemStats
 class IndexManager(val maxItemsCount: Int, ci: ContentIndex, reg: IndexManagerRegistry) {
   import IndexManager._
   
-  def search(searchExpression: String): Traversable[ContentRef] = {
+  def search(searchExpression: String): Set[ContentRef] = {
     val res = ci.lookup(searchExpression)
     
     val now = System.currentTimeMillis
@@ -15,7 +15,7 @@ class IndexManager(val maxItemsCount: Int, ci: ContentIndex, reg: IndexManagerRe
       s.copy(lastHit = now, hits = s.hits + 1) 
     } foreach(reg.update)
     
-    res
+    res.toSet
   }
   
   def offer(item: ContentItem): OfferResponse = {

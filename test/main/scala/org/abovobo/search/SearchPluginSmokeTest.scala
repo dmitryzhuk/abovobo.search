@@ -81,15 +81,38 @@ object SearchPluginSmokeTest extends App {
     searchPlugin
   }
   
-  val epnodes = DhtNode.spawnNodes(system, 20000, 4)
+  def printTable(node: ActorRef) {
+    val info = Await.result(node ? DhtNode.Describe, timeoutDuration).asInstanceOf[DhtNode.NodeInfo]
+    
+    println("dht table for: " + info.self.id + "@" + info.self.address)
+    info.nodes.foreach { entry => println("\t" + entry)}
+  }
+  
+  val epnodes = DhtNode.spawnNodes(system, 20000, 11) 
   val nodes = epnodes.map { _._2 }
   
-  val searchPlugins = nodes map { node => node -> addSearchPlugin(node) }
+  // omit router node from search process
+  val searchPlugins = nodes.tail map { node => node -> addSearchPlugin(node) }
 
-  println("--------- waiting -------")
+  Thread.sleep(5 * 1000)
   
-  Thread.sleep(7 * 1000)
+  println("--------- waiting -------")
+ 
+//  for (i <- 1 to 5) {
+//    println("--------- find node -------")
+//
+//    nodes.foreach { n => 
+//      n ! Controller.FindNode(Integer160.random)
+//    }
+//    Thread.sleep(10 * 1000)
+//  }
+  
+  Thread.sleep(10 * 1000)
 
+  println("------------------------- table")  
+  nodes.foreach(printTable)
+  
+  println("--------- search test -------")
   
   val first = new ContentItem(Integer160.random.toString, "long title", "good description", 1025)
   val second = new ContentItem(Integer160.random.toString, "short title 2", "very good description", 1026)
@@ -134,11 +157,13 @@ object SearchPluginSmokeTest extends App {
     search ! SearchPlugin.Announce(second)
   }
   
+  Thread.sleep(3 * 1000)
   
-  rnd.shuffle(searchPlugins).take(1).foreach { case (node, sp) =>
+  rnd.shuffle(searchPlugins.filterNot(announceGroup.contains(_))).take(1).foreach { case (node, sp) =>
     def testSearch(text: String) = {
+      println(">>>>> Starting search for: " + text)
       val res = search(text)(sp)
-      println("Search result for " + text + ": " + res)
+      println(">>>>> Search finished. Search result for " + text + ": " + res)
     }
     
     testSearch("good")
@@ -146,20 +171,18 @@ object SearchPluginSmokeTest extends App {
     testSearch("1025 bytes")
   }  
   
-  println("-------------------------")
+  println("------------------------- waiting")
  
   Thread.sleep(5 * 1000)
-  
-  nodes.foreach { node =>
-    
-    val info = Await.result(node ? DhtNode.Describe, timeoutDuration).asInstanceOf[DhtNode.NodeInfo]
-    
-    println("dht table for: " + info.self.id + "@" + info.self.address)
-    info.nodes.foreach { entry => println("\t" + entry)}
-  }    
-  
+
+  println("------------------------- table")  
+  nodes.foreach(printTable)
+
+  println("------------------------- cleaning up")
+
   Thread.sleep(1000)
-  nodes foreach { node => node ! DhtNode.Dispose } 
-  Thread.sleep(1000)
+  nodes foreach { node => node ! DhtNode.Stop } 
+  Thread.sleep(3 * 1000)
   system.shutdown()
+  system.awaitTermination()
 }

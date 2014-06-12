@@ -6,8 +6,6 @@ import org.abovobo.dht.persistence.Reader
 import org.abovobo.dht.PluginMessage
 import akka.actor.ActorLogging
 import org.abovobo.search.ContentIndex.ContentItem
-import scala.pickling.binary.BinaryPickle
-import scala.pickling.binary.BinaryPickleFormat
 import org.abovobo.integer.Integer160
 import org.abovobo.search.ContentIndex.ContentRef
 import org.abovobo.dht.Controller.SendPluginMessage
@@ -45,7 +43,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   val random = new Random()
 
   val currentRequests: TransactionManager[TID, SearchOperation] = new TransactionManager(this.context.system.scheduler, 5.seconds, { (id) => self ! SearchTimeout(id) })
-  val tidFactory = new TIDFactory
+  val tidFactory = TIDFactory.random
 
   override def receive = {
     //
@@ -67,8 +65,8 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
       
       searchMessage match {
         case SearchNetworkCommand(cmd, ttl) => cmd match {
-          case Announce(item) => announce(item, ttl)
-          case Lookup(searchString) => SearchOperation.start(searchString, new NetworkResponder(message.tid, new Node(message.id, remote)), ttl)
+          case Announce(item) => announce(message.id, item, ttl)
+          case Lookup(searchString) => SearchOperation.start(message.id, searchString, new NetworkResponder(message.tid, new Node(message.id, remote)), ttl)
         }
        
         case response: Response => currentRequests.get(message.tid) match {
@@ -90,9 +88,9 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     // 
     // Messages from local service user
     // 
-    case Announce(item) => announce(item, announceTtl)
+    case Announce(item) => announce(selfId, item, announceTtl)
     
-    case Lookup(searchString) => SearchOperation.start(searchString, new DirectResponder(sender))
+    case Lookup(searchString) => SearchOperation.start(selfId,searchString, new DirectResponder(sender))
 
     // 
     // Messages from internal services/self
@@ -115,15 +113,19 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     case SearchTimeout(tid) => currentRequests.fail(tid) foreach(_.timeout)
   }
   
-  def announce(item: ContentItem, ttl: Int) {
+  def announce(from: Integer160, item: ContentItem, ttl: Int) {
+    log.debug("Node " + selfId + " got announce: " + item)    
+    
     indexManager ! IndexManagerCommand(tidFactory.next, Announce(item))
     if (ttl > 1)  {
       def announceToNetwork(item: ContentItem, ttl: Int) {
-        val msg = SearchNetworkCommand(Announce(item), ttl.toByte)
-        val tid = tidFactory.next
-        val pm = new SearchPluginMessage(tid, msg)      
-        
-        randomNodes(announceWidth) foreach { n =>
+        val msg = SearchNetworkCommand(Announce(item), ttl.toByte)        
+        randomNodesExcept(announceWidth, from) foreach { n =>
+          val tid = tidFactory.next
+          val pm = new SearchPluginMessage(tid, msg)      
+          
+          log.debug("Sending announce for " + item + " to " + n)
+          
           dhtController ! SendPluginMessage(pm, n)
         }
       }      
@@ -131,7 +133,11 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     }
   }
     
-  def randomNodes(count: Int): Traversable[Node] = {
+  def randomNodesExcept(count: Int, id: Integer160) = {
+    randomNodes2(count + 1).filter(_.id != id).take(count)
+  }
+  
+  def randomNodes2(count: Int): Traversable[Node] = {
     random.shuffle(dhtNodes()).take(count)
   }
   
@@ -144,10 +150,14 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     def apply(response: Response) = sender ! response 
   }
   class NetworkResponder(tid: TID, sender: Node) extends Responder {
-    def apply(response: Response) = dhtController ! createResponseMessage(tid, sender, response)
+    def apply(response: Response) = {
+      log.debug("Sending search response " + response + " to " + sender)
+      dhtController ! createResponseMessage(tid, sender, response)
+    }
   }
   
   class SearchOperation private (
+      val requesterId: Integer160,
       val tid: TID,
       val searchString: String,
       respond: Response => Any) {
@@ -159,8 +169,9 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     private def searchInNetwork(ttl: Int): Traversable[Node] = {
       val msg = new SearchPluginMessage(tid, SearchNetworkCommand(Lookup(searchString), ttl.toByte))
       
-      val nodes = randomNodes(SearchOperation.SearchWidth)
+      val nodes = randomNodesExcept(SearchOperation.SearchWidth, requesterId)
       nodes foreach { n => 
+        log.debug("Sending search request for " + searchString + " to " + n)
         dhtController ! SendPluginMessage(msg, n)
       }
       nodes
@@ -196,9 +207,9 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     val SearchTtl = 3
     val SearchWidth = 10
         
-    def start(searchString: String, responder: Responder, ttl: Int = SearchTtl): SearchOperation = {
+    def start(requesterId: Integer160, searchString: String, responder: Responder, ttl: Int = SearchTtl): SearchOperation = {
       val tid = tidFactory.next
-      val search = new SearchOperation(tid, searchString, responder)
+      val search = new SearchOperation(requesterId, tid, searchString, responder)
   
       currentRequests.add(tid, search)
       

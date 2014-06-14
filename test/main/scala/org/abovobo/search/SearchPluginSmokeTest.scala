@@ -88,7 +88,7 @@ object SearchPluginSmokeTest extends App {
     info.nodes.foreach { entry => println("\t" + entry)}
   }
   
-  val epnodes = DhtNode.spawnNodes(system, 20000, 11) 
+  val epnodes = DhtNode.spawnNodes(system, 20000, 22) 
   val nodes = epnodes.map { _._2 }
   
   // omit router node from search process
@@ -109,8 +109,17 @@ object SearchPluginSmokeTest extends App {
   
   Thread.sleep(10 * 1000)
 
-  println("------------------------- table")  
-  nodes.foreach(printTable)
+  for (i <- 1 to 15) {
+    
+    println("Used Mem: " + (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory() * 1.0 / 1024 / 1024))
+    System.gc()
+    println("Used Mem: " + (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory() * 1.0 / 1024 / 1024))
+    
+    println("------------------------- table")  
+    println
+    nodes.foreach(printTable)
+    Thread.sleep(60 * 1000)
+  }
   
   println("--------- search test -------")
   
@@ -175,9 +184,12 @@ object SearchPluginSmokeTest extends App {
  
   Thread.sleep(5 * 1000)
 
-  println("------------------------- table")  
-  nodes.foreach(printTable)
-
+  //for (i <- 1 to 15) 
+  {
+    println("------------------------- table")  
+    nodes.foreach(printTable)
+  }
+  
   println("------------------------- cleaning up")
 
   Thread.sleep(1000)

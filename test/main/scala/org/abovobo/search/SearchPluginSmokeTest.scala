@@ -41,6 +41,8 @@ import scala.concurrent.Await
 import org.abovobo.dht.Controller.PutPlugin
 import org.abovobo.dht.DhtNode
 import scala.util.Random
+import java.io.File
+import org.abovobo.search.impl.LuceneContentIndex
 
 
 
@@ -62,13 +64,25 @@ object SearchPluginSmokeTest extends App {
   def createNode(ordinal: Int, routers: List[InetSocketAddress] = List()): ActorRef = {
     system.actorOf(DhtNode.props(localEndpoint(ordinal), routers), "Node-" + ordinal.toString)
   }
+  
+  val luceneIndexHome = {
+    val h = new File(System.getProperty("user.home") + "/db/lucene")
+    h.mkdirs
+    h
+  }
     
   def addSearchPlugin(node: ActorRef): ActorRef = {
     
     val info = Await.result(node ? DhtNode.Describe, timeoutDuration).asInstanceOf[DhtNode.NodeInfo]
     
+    def getContentIndex = {
+      val dir = new File(luceneIndexHome, node.path.name)
+      dir.mkdirs
+      new LuceneContentIndex(dir.toPath)
+    }
+    
     val indexManager = system.actorOf(Props(classOf[IndexManagerActor], 
-        new IndexManager(10, new InMemoryContentIndex(), new IndexManagerRegistry("jdbc:h2:~/db/search-" + node.path.name))), node.path.name + "-indexManager")
+        new IndexManager(10, getContentIndex, new IndexManagerRegistry("jdbc:h2:~/db/search-" + node.path.name))), node.path.name + "-indexManager")
         
     val searchPlugin = system.actorOf(SearchPlugin.props(info.self.id, info.controller, indexManager, { () =>
       Await.result(node ? DhtNode.Describe, 5 seconds).asInstanceOf[DhtNode.NodeInfo].nodes
@@ -88,7 +102,7 @@ object SearchPluginSmokeTest extends App {
     info.nodes.foreach { entry => println("\t" + entry)}
   }
   
-  val epnodes = DhtNode.spawnNodes(system, 20000, 22) 
+  val epnodes = DhtNode.spawnNodes(system, 20000, 12) 
   val nodes = epnodes.map { _._2 }
   
   // omit router node from search process
@@ -109,7 +123,8 @@ object SearchPluginSmokeTest extends App {
   
   Thread.sleep(10 * 1000)
 
-  for (i <- 1 to 15) {
+  //for (i <- 1 to 15) 
+  {
     
     println("Used Mem: " + (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory() * 1.0 / 1024 / 1024))
     System.gc()

@@ -30,7 +30,7 @@ import org.apache.lucene.index.IndexReader
 /**
  * Lucene based impl of content index. Note: this impl is not thread safe.
  */
-class LuceneContentIndex(val indexLocation: Path) extends ContentIndex {
+class LuceneContentIndex(val indexLocation: Path, val commitThreshold: Int = 0, val maxResults: Int = 50) extends ContentIndex {
   import LuceneContentIndex._
   
   val directory = FSDirectory.open(indexLocation.toFile, NoLockFactory.getNoLockFactory)
@@ -41,8 +41,10 @@ class LuceneContentIndex(val indexLocation: Path) extends ContentIndex {
   }
   
   private val writer = {
-    val config = new IndexWriterConfig(version, analyzer)
-    new IndexWriter(directory, config)
+    if (indexLocation.toFile.list.isEmpty) {
+      new IndexWriter(directory, new IndexWriterConfig(version, analyzer)).close()
+    }
+    new IndexWriter(directory, new IndexWriterConfig(version, analyzer))
   }
   private var reader: DirectoryReader = DirectoryReader.open(directory)
   private var indexSearcher: IndexSearcher = new IndexSearcher(reader)
@@ -131,7 +133,7 @@ class LuceneContentIndex(val indexLocation: Path) extends ContentIndex {
       if (changesCount > commitThreshold) {
         writer.commit()
         changesCount = 0
-        //resetReader()
+        resetReader()
       }      
     } catch {
       case t: Throwable =>
@@ -143,6 +145,4 @@ class LuceneContentIndex(val indexLocation: Path) extends ContentIndex {
 
 object LuceneContentIndex {
   val version = Version.LUCENE_48
-  val commitThreshold = 0
-  val maxResults = 50
 }

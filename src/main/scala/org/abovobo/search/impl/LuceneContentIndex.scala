@@ -26,6 +26,7 @@ import java.nio.file.Path
 import org.apache.lucene.search.IndexSearcher
 import org.apache.lucene.search.Sort
 import org.apache.lucene.index.IndexReader
+import java.io.CharArrayWriter
 
 /**
  * Lucene based impl of content index. Note: this impl is not thread safe.
@@ -75,7 +76,7 @@ class LuceneContentIndex(val indexLocation: Path, val commitThreshold: Int = 0, 
     
     topDocs.scoreDocs map { sd =>
       val doc = indexSearcher.doc(sd.doc)
-      SimpleContentRef(doc.get("infohash"), doc.get("title"))
+      new SimpleContentRef(doc.get("infohash"), doc.get("title"))
     }
   }
       
@@ -107,14 +108,15 @@ class LuceneContentIndex(val indexLocation: Path, val commitThreshold: Int = 0, 
   private def createDocument(item: ContentItem): Document = {
     val infohash = new StringField("infohash", item.id, Store.YES)    
     val title = new TextField("title", item.title, Store.YES)
-    val description = new TextField("description", item.description, Store.NO)
+    val descriptionValue = item.description
+    val description = new TextField("description", descriptionValue, Store.NO)
     val size = new LongField("size", item.size, Store.YES)
     
-    val defaultValue = new StringBuilder(item.description.length + item.title.length + 64)
+    val defaultBuffer = new CharArrayWriter(descriptionValue.length + item.title.length + 60)
     
-    defaultValue.append(item.id).append(" ").append(item.title).append(" ").append(item.description).append(" size ").append(item.size).append(" bytes")
-    
-    val default = new TextField("default", defaultValue.toString, Store.NO) // having things we still need separate field 'description' to allow specific search on it
+    defaultBuffer.append(item.id).append(" ").append(item.title).append(" ").append(" size ").append(item.size.toString).append(" bytes ").append(descriptionValue)
+        
+    val default = new TextField("default", defaultBuffer.toString, Store.NO) // having this field we still need separate field 'description' to allow specific search on it
     
     val doc = new Document()
     doc.add(infohash)

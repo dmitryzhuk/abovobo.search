@@ -43,6 +43,8 @@ import org.abovobo.dht.DhtNode
 import scala.util.Random
 import java.io.File
 import org.abovobo.search.impl.LuceneContentIndex
+import java.nio.file.Files
+import java.nio.file.Paths
 
 
 
@@ -102,7 +104,7 @@ object SearchPluginSmokeTest extends App {
     info.nodes.foreach { entry => println("\t" + entry)}
   }
   
-  val epnodes = DhtNode.spawnNodes(system, 20000, 12) 
+  val epnodes = DhtNode.spawnNodes(system, 20000, 5) 
   val nodes = epnodes.map { _._2 }
   
   // omit router node from search process
@@ -133,13 +135,15 @@ object SearchPluginSmokeTest extends App {
     println("------------------------- table")  
     println
     nodes.foreach(printTable)
-    Thread.sleep(60 * 1000)
+    //Thread.sleep(60 * 1000)
   }
   
   println("--------- search test -------")
   
-  val first = new ContentItem(Integer160.random.toString, "long title", "good description", 1025)
-  val second = new ContentItem(Integer160.random.toString, "short title 2", "very good description", 1026)
+  
+  val first = new ContentItem(Integer160.random.toString, "Cloud Atlas (2012)", new String(Files.readAllBytes(Paths.get("./test/test1.txt")), "UTF-8"), 1025)  
+  val second = new ContentItem(Integer160.random.toString, "A Beautiful Mind (2001)", new String(Files.readAllBytes(Paths.get("./test/test2.txt")), "UTF-8"), 1026)
+  val shortOne = new ContentItem(Integer160.random.toString, "short title 2", "very short description", 100)
   
   val rnd = new Random
   
@@ -179,6 +183,7 @@ object SearchPluginSmokeTest extends App {
   announceGroup.foreach { case (node, search) =>
     search ! SearchPlugin.Announce(first)
     search ! SearchPlugin.Announce(second)
+    search ! SearchPlugin.Announce(shortOne)
   }
   
   Thread.sleep(3 * 1000)
@@ -190,9 +195,9 @@ object SearchPluginSmokeTest extends App {
       println(">>>>> Search finished. Search result for " + text + ": " + res)
     }
     
-    testSearch("good")
-    testSearch("long")
-    testSearch("1025 bytes")
+    testSearch("Tom Hanks")
+    testSearch("can't find anything")
+    testSearch("\"1026 bytes\"")
   }  
   
   println("------------------------- waiting")

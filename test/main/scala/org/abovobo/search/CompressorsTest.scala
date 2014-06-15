@@ -1,9 +1,8 @@
-package org.abovobo.search.impl
+package org.abovobo.search
 
 import java.io.File
 import java.io.FileInputStream
 import java.io.ByteArrayOutputStream
-import java.util.zip.GZIPOutputStream
 import java.util.zip.DeflaterOutputStream
 import java.util.zip.Deflater
 

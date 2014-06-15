@@ -56,6 +56,6 @@ abstract class ContentIndexTest extends WordSpec with Matchers with BeforeAndAft
     }
     
     def newItem(id: ContentIndex.CID = Integer160.random.toString, title: String = "title", description: String = "description", size: Long = 0): ContentItem = {
-       ContentItem(id, title, description, size)
+       new ContentItem(id, title, description, size)
     }
 }

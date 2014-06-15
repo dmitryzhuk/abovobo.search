@@ -22,9 +22,9 @@ class InMemoryContentIndex extends ContentIndex {
   def remove(id: CID) = items.remove(id)
   
   def lookup(searchString: String): Traversable[ContentRef] = 
-    items.values filter { _.toString.contains(searchString) } map { ci => SimpleContentRef(ci.id, ci.title) }
+    items.values filter { _.toString.contains(searchString) } map { ci => new SimpleContentRef(ci.id, ci.title) }
   
-  def list: Traversable[ContentRef] = items.values.map { ci => SimpleContentRef(ci.id, ci.title)  }
+  def list: Traversable[ContentRef] = items.values.map { ci => new SimpleContentRef(ci.id, ci.title)  }
   
   def count = items.size
   

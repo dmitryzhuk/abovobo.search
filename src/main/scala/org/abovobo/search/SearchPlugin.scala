@@ -27,11 +27,13 @@ import scala.util.Random
 import scala.collection.mutable.ArraySeq
 import scala.collection.mutable.ArraySeq
 import akka.serialization.SerializationExtension
+import akka.util.ByteStringBuilder
+import akka.util.ByteString
+import java.nio.charset.Charset
+import org.abovobo.conversions.Bencode
+import org.abovobo.search.ContentIndex._
 
 class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[Node]) extends Plugin(pid) with ActorLogging {
-  //import scala.pickling._
-  //import scala.pickling.json._
-  //import scala.pickling.binary._
   import SearchPlugin._
 
   val system = this.context.system
@@ -51,14 +53,10 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     ///
     case Controller.Received(message: PluginMessage, remote) => {
       val searchMessage = try { 
-        
-        deserializeMessage(message.payloadBytes)
-         
-        //new String(message.payloadBytes, "UTF-8").unpickle[SearchMessage]
-        
+        deserializeMessage(message.payload)
       } catch {
         case e: Throwable =>
-          log.warning("Cannot parse network message: \n{}\nException: {}", new String(message.payloadBytes), e)
+          log.warning("Cannot parse network message: \n{}\nException: {}", message.payload.toString, e)
           throw e
       }
       log.debug("Got network message from " + remote + ": "  + searchMessage)
@@ -129,7 +127,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
           dhtController ! SendPluginMessage(pm, n)
         }
       }      
-      announceToNetwork(item, ttl - 1)
+      announceToNetwork(item.compress, ttl - 1)
     }
   }
     
@@ -177,7 +175,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
       nodes
     }
     
-    def addResults(from: Integer160, items: Set[ContentRef]) = {
+    def addResults(from: Integer160, items: scala.collection.Set[ContentRef]) = {
       val uniqueResults = items.filterNot { i => reportedResults.contains(i.id) }
   
       /// !!! TODO: use search.pendingResults to accumulate results here and fire them in bunches to requester (like each 1 second, or something else) to avoid excessive traffic
@@ -226,16 +224,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   val serialization = SerializationExtension(system)
   val serializer = serialization.findSerializerFor(Lookup("dummy"))
 
-  // utilities for controller communication
-  def deserializeMessage(arr: Array[Byte]): SearchMessage = {
-    serializer.fromBinary(arr).asInstanceOf[SearchMessage]
-  }
   
-  def serializeMessage(msg: SearchMessage): Array[Byte] = {
-    // somehow this call breaks jvm code verification when inline...
-    //msg.pickle.value.getBytes("UTF-8") 
-    serializer.toBinary(msg)
-  }
 
   class SearchPluginMessage(tid: TID, msg: SearchMessage) extends PluginMessage(tid, selfId, pid, serializeMessage(msg))
 
@@ -256,7 +245,7 @@ object SearchPlugin {
   sealed trait Response extends SearchMessage
 
   //final case class AnnounceResult(itemId: CID, result: IndexManager.OfferResponse) extends Response
-  final case class FoundItems(searchString: String, found: Set[ContentRef]) extends Response
+  final case class FoundItems(searchString: String, found: scala.collection.Set[ContentRef]) extends Response
   
   final case class SearchFinished(searchString: String) extends Response
 
@@ -299,50 +288,157 @@ object SearchPlugin {
     // private messages
   case class SearchNetworkCommand(cmd: Command, ttl: Byte) extends SearchMessage
   case class SearchTimeout(tid: TID)
-}
+  
+  
+  // utilities for controller communication
+  def deserializeMessage(msg: ByteString): SearchMessage = {
+    //serializer.fromBinary(msg.toArray).asInstanceOf[SearchMessage]
+    
+    var events = Bencode.decode(msg)//.toIndexedSeq
+    
+    
+    def xthrow(code: Int, message: String) = throw new RuntimeException("error " + code + ": " +  message)
 
-//object PickleApp extends App {
-//  import SearchPlugin._
-//
-//  import scala.pickling._
-//  import scala.pickling.binary._
-//
-//  val a = Announce(new ContentItem(
-//    Integer160.random.toString,
-//    "Not very long title with year 2014",
-//    "Also not very long description, we should expect it to be way much longer",
-//    1024))
-//
-//  val l = Lookup("futurama")
-//  
-//  var coms: List[SearchMessage] = List(a, l)
-//
-//
-//  for (i <- 1 to 6) {
-//    var items = Array[ContentRef]()
-//    for (j <- 0 until i) {
-//      items = items ++ Array(ContentIndex.SimpleContentRef(Integer160.random.toString, "random title"))
-//    }
-//    
-//    coms ::= FoundItems("test" + i, items)
-//  }
-//  
-////  val items = List(
-////      //new ContentIndex.SimpleContentRef(Integer160.random.toString, "random title"),
-////      new ContentIndex.SimpleContentRef(Integer160.random.toString, "random title 2")
-////      )
-//  
-//  //val f = FoundItems("test", items)
-//
-//  val pp = coms.pickle
-//
-//  val vv = pp.value
-//
-//  println("size: " + vv.length + ", data: " + new String(vv))
-//
-//  vv.unpickle[List[SearchMessage]].foreach {
-//    case Announce(item) => println("announce: " + item)
-//    case Lookup(text) => println("lookup :" + text)
-//    case FoundItems(text, items) => println("found: " + items)
-//  }
-//}
+    def array(event: Bencode.Event): Array[Byte] = event match {
+      case Bencode.Bytestring(value) => value
+      case _ => xthrow(0, "Malformed packet")
+    }
+
+    def integer160(event: Bencode.Event): Integer160 = event match {
+      case Bencode.Bytestring(value) => new Integer160(value)
+      case _ => xthrow(0, "Malformed packet")
+    }
+
+    def string(event: Bencode.Event): String = event match {
+      case Bencode.Bytestring(value) => new String(value, "UTF-8")
+      case _ => xthrow(0, "Malformed packet")
+    }
+    
+    def byteString(event: Bencode.Event): ByteString = event match {
+      case Bencode.Bytestring(value) => ByteString(value) 
+      case _ => xthrow(0, "Malformed packet")      
+    }
+    
+    def integer(event: Bencode.Event): Long = event match {
+      case Bencode.Integer(value) => value
+      case _ => xthrow(0, "Malformed packet")
+    }
+    
+    def next(): Bencode.Event = events.next
+    
+    def ensure(ec: Class[_ <: Bencode.Event]) = {
+      val n = next()
+      if (!ec.isInstance(n)) {
+        xthrow(2, "Illegal arguments")         
+      }
+    }
+    
+    ensure(classOf[Bencode.DictionaryBegin])
+        
+    string(next()) match {
+      case "a" => // Announce
+        next() // list
+        val ttl = integer(next())
+        val id = string(next())
+        val title = string(next())
+        val size = integer(next())
+        val description = array(next())
+        ensure(classOf[Bencode.ListEnd])
+        SearchNetworkCommand(Announce(new CompressedContentItem(id, title, size, description)), ttl.toByte)
+      case "l" => // Lookup
+        next() // list
+        val ttl = integer(next())
+        val searchString = string(next())
+        ensure(classOf[Bencode.ListEnd])
+        SearchNetworkCommand(Lookup(searchString), ttl.toByte)
+      case "f" => // FoundItems
+        next() // list
+        val searchString = string(next())
+        // lists with items
+        val items = scala.collection.mutable.Set.empty[ContentRef]
+        while (next().isInstanceOf[Bencode.ListBegin]) {
+          items += new SimpleContentRef(string(next()), string(next()), integer(next()))
+          ensure(classOf[Bencode.ListEnd])
+        }
+        // ensure(classOf[Bencode.ListEnd]) - discarded in while
+        FoundItems(searchString, items)
+      case "s" => // SearchFinished
+        SearchFinished(string(next()))
+      case "e" => // Error
+        next() // list
+        val e = Error(integer(next()).toInt, string(next()))
+        ensure(classOf[Bencode.ListEnd])
+        e
+      case x => xthrow(1, "Unknown message type " + x)
+    }
+  }
+  
+  def serializeMessage(msg: SearchMessage): ByteString = {
+    val buf = new ByteStringBuilder()
+    buf += 'd'
+    
+    val charset = Charset.forName("UTF-8")
+    def putStr(str: String) {
+      putArray(str.getBytes(charset))
+    }
+    def putNum(i: Long) {
+      buf += 'i' ++= i.toString.getBytes(charset) += 'e'
+    } 
+    def putArray(bytes: Array[Byte]) {
+      buf ++= bytes.length.toString.getBytes(charset) += ':' ++= bytes 
+    }
+    def putChar(ch: Byte) = {
+      buf += '1' += ':' += ch
+    }
+      
+    msg match {
+      case SearchNetworkCommand(command, ttl) => command match {
+        case Announce(item) => 
+          putChar('a')
+          buf += 'l'
+            putNum(ttl)
+            putStr(item.id)
+            putStr(item.title)
+            putNum(item.size)
+            putArray(item.compress.descriptionData)
+          buf += 'e'
+        case Lookup(searchString) =>          
+          putChar('l')
+          buf += 'l'
+            putNum(ttl)
+            putStr(searchString)
+          buf += 'e'          
+      }
+      case FoundItems(str, found) =>
+        putChar('f')
+        buf += 'l'
+          putStr(str)            
+          found.foreach { item => 
+            buf += 'l'
+              putStr(item.id)
+              putStr(item.title)
+              putNum(item.size)
+            buf += 'e'               
+          }  
+        buf += 'e' 
+      case SearchFinished(str) =>
+        putStr("s")
+        putStr(str)
+      case Error(code, text) =>
+        putChar('e')
+        buf += 'l'
+          putNum(code)
+          putStr(text)
+        buf += 'e'
+        
+      case cmd: Command => throw new IllegalArgumentException("Commands should be wrapped to SearchNetworkCommand: " + cmd)
+    }
+    
+    buf += 'e'
+      
+    val res = buf.result
+    println(res.length + " =>>>> " + msg)
+    res
+  }
+  
+}

@@ -76,7 +76,7 @@ class LuceneContentIndex(val indexLocation: Path, val commitThreshold: Int = 0, 
     
     topDocs.scoreDocs map { sd =>
       val doc = indexSearcher.doc(sd.doc)
-      new SimpleContentRef(doc.get("infohash"), doc.get("title"))
+      new SimpleContentRef(doc.get("infohash"), doc.get("title"), doc.getField("size").numericValue.longValue)
     }
   }
       
@@ -108,13 +108,12 @@ class LuceneContentIndex(val indexLocation: Path, val commitThreshold: Int = 0, 
   private def createDocument(item: ContentItem): Document = {
     val infohash = new StringField("infohash", item.id, Store.YES)    
     val title = new TextField("title", item.title, Store.YES)
-    val descriptionValue = item.description
-    val description = new TextField("description", descriptionValue, Store.NO)
+    val description = new TextField("description", item.description, Store.NO)
     val size = new LongField("size", item.size, Store.YES)
     
-    val defaultBuffer = new CharArrayWriter(descriptionValue.length + item.title.length + 60)
+    val defaultBuffer = new CharArrayWriter(description.stringValue.length + item.title.length + 60)
     
-    defaultBuffer.append(item.id).append(" ").append(item.title).append(" ").append(" size ").append(item.size.toString).append(" bytes ").append(descriptionValue)
+    defaultBuffer.append(item.id).append(" ").append(item.title).append(" ").append(" size ").append(item.size.toString).append(" bytes ").append(description.stringValue)
         
     val default = new TextField("default", defaultBuffer.toString, Store.NO) // having this field we still need separate field 'description' to allow specific search on it
     

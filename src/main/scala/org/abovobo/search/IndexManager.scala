@@ -30,7 +30,7 @@ class IndexManager(val maxItemsCount: Int, ci: ContentIndex, reg: IndexManagerRe
         // new item for us to consider
         if (reg.count < maxItemsCount) {
           // we always add new items if there's a space
-          ci.add(item)
+          ci.add(item.decompress)
           reg.add(ContentItemStats(item.id, 0, 1))
           Accepted
         } else {

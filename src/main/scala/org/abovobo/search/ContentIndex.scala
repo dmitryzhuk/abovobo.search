@@ -19,6 +19,7 @@ import java.io.InputStream
 import java.util.zip.DeflaterOutputStream
 import java.util.zip.InflaterInputStream
 import java.util.zip.Inflater
+import scala.reflect.io.Streamable
 
 trait ContentIndex {
   def add(item: ContentItem)
@@ -52,6 +53,8 @@ object ContentIndex {
  
   sealed trait ContentRef extends Serializable {
     def id: CID
+    def title: String
+    def size: Long
     
     override def equals(o: Any) = o match {
       case that: ContentRef => this.id.equals(that.id)
@@ -59,34 +62,50 @@ object ContentIndex {
     }
     
     override def hashCode = id.hashCode
-    
-    override def toString = "ContentRef(#" + id + ")" 
+
+    override def toString = "ContentRef#" + id + " : " + title + " : " + size + " bytes"        
   }
   
-  class ContentItem private(val id: CID, val title: String, val descriptionData: Array[Byte], val size: Long) extends ContentRef {
+  trait ContentItem extends ContentRef {
+    def description: String
+    def descriptionData: Array[Byte]
+    
+    def compress: CompressedContentItem
+    def decompress: PlainContentItem
+  }
+  
+  class CompressedContentItem(val id: CID, val title: String, val size: Long, val descriptionData: Array[Byte]) extends ContentItem {    
+    def description: String = throw new UnsupportedOperationException("use decompress.description")
+
+    def compress: CompressedContentItem = this
+    def decompress: PlainContentItem = {
+      new PlainContentItem(id, title, size, Streamable.bytes(plainDataInputStream))
+    } 
+    
+    private def plainDataInputStream = new InflaterInputStream(new ByteArrayInputStream(descriptionData), new Inflater(true), 256)
+  }
+  
+  class PlainContentItem(val id: CID, val title: String, val size: Long, val descriptionData: Array[Byte]) extends ContentItem {
     if (title.length > MaxTitleLenght) throw new IllegalArgumentException("title is too long")
     if (descriptionData.length > MaxDescriptionLength) throw new IllegalArgumentException("description is too long")
-    
-    def this(id: CID, title: String, description: String, size: Long) = { 
-      this(id, title, ContentItem.compress(description), size)      
-    }
-    
-    def description = {
-      val reader = descriptionReader
-      val buffer = new CharArrayWriter(256)
-      val buf = new Array[Char](256)      
-      Iterator.continually(reader.read(buf)).takeWhile { _ != -1 } foreach { read => buffer.write(buf, 0, read) }
-      buffer.toString
-    }
-    
-    def descriptionReader: Reader = new InputStreamReader(plainDataInputStream, Encoding)
 
-    private def plainDataInputStream = new InflaterInputStream(new ByteArrayInputStream(descriptionData), new Inflater(true), 256)
+    def this(id: CID, title: String, size: Long, description: String) = { 
+      this(id, title, size, description.getBytes(Encoding))      
+    }
     
-    override def toString = id + " : " + title + " : " + size + " bytes"
+    def description = new String(descriptionData, Encoding)
+    
+    def descriptionReader: Reader = new InputStreamReader(new ByteArrayInputStream(descriptionData), Encoding)
+    
+    def compress: CompressedContentItem = {
+      new CompressedContentItem(id, title, size, ContentItem.compress(new ByteArrayInputStream(descriptionData)))
+    }
+    def decompress: PlainContentItem = this
   }
   
   object ContentItem {
+    def apply(id: CID, title: String, size: Long, description: String): PlainContentItem = new PlainContentItem(id, title, size, description)
+    
     def compress(str: String): Array[Byte] = {
       val bytes = str.getBytes(Encoding)
       compress(new ByteArrayInputStream(bytes), bytes.length)
@@ -100,14 +119,7 @@ object ContentIndex {
       zos.close
       os.toByteArray
     }
-    
-    def wrap(id: CID, title: String, compressedDescription: Array[Byte], size: Long): ContentItem = {
-      new ContentItem(id, title, compressedDescription, size)
-    }
   }
   
-  class SimpleContentRef(val id: CID, val title: String) extends ContentRef {
-    override def toString = "SimpleContentRef(#" + id + ", title: " + title  + ")"     
-  }
-  class RatedContentRef(val id: CID, val title: String, val timestamp: Long, val hits: Long) extends ContentRef  
+  class SimpleContentRef(val id: CID, val title: String, val size: Long) extends ContentRef  
 }

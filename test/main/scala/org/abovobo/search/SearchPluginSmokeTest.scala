@@ -141,9 +141,9 @@ object SearchPluginSmokeTest extends App {
   println("--------- search test -------")
   
   
-  val first = new ContentItem(Integer160.random.toString, "Cloud Atlas (2012)", new String(Files.readAllBytes(Paths.get("./test/test1.txt")), "UTF-8"), 1025)  
-  val second = new ContentItem(Integer160.random.toString, "A Beautiful Mind (2001)", new String(Files.readAllBytes(Paths.get("./test/test2.txt")), "UTF-8"), 1026)
-  val shortOne = new ContentItem(Integer160.random.toString, "short title 2", "very short description", 100)
+  val first = ContentItem(Integer160.random.toString, "Cloud Atlas (2012)", 1025, new String(Files.readAllBytes(Paths.get("./test/test1.txt")), "UTF-8"))  
+  val second = ContentItem(Integer160.random.toString, "A Beautiful Mind (2001)", 1026, new String(Files.readAllBytes(Paths.get("./test/test2.txt")), "UTF-8"))
+  val shortOne = ContentItem(Integer160.random.toString, "short title 2", 100, "very short description")
   
   val rnd = new Random
   

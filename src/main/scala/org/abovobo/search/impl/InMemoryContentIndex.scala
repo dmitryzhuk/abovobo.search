@@ -23,4 +23,6 @@ class InMemoryContentIndex extends ContentIndex {
   def size = count * (ContentIndex.MaxDescriptionLength + ContentIndex.MaxTitleLenght + 20 + 8)
   
   def clear() = items.clear()
+  
+  def close() { clear(); items = null }
 }

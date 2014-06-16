@@ -40,6 +40,9 @@ trait ContentIndex {
   
   /** @return approximate index size in bytes */
   def size: Long
+  
+  /** Safely flushes and closes the index freeing all used resources */
+  def close()
 }
 
 object ContentIndex {

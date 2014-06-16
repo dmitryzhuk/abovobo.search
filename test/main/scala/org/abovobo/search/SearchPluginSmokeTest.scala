@@ -84,7 +84,7 @@ object SearchPluginSmokeTest extends App {
     }
     
     val indexManager = system.actorOf(Props(classOf[IndexManagerActor], 
-        new IndexManager(10, getContentIndex, new IndexManagerRegistry("jdbc:h2:~/db/search-" + node.path.name))), node.path.name + "-indexManager")
+        new IndexManager(getContentIndex, new IndexManagerRegistry("jdbc:h2:~/db/search-" + node.path.name), 100)), node.path.name + "-indexManager")
         
     val searchPlugin = system.actorOf(SearchPlugin.props(info.self.id, info.controller, indexManager, { () =>
       Await.result(node ? DhtNode.Describe, 5 seconds).asInstanceOf[DhtNode.NodeInfo].nodes

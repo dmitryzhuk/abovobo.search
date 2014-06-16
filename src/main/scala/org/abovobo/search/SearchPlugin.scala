@@ -102,7 +102,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
             case Error(code, message) => log.error("Error from local index: " + code + ", " + message)
             case SearchFinished(searchString) => // shouldn't happen
           }
-          search.finishForNode(selfId)
+          search.finishForNode(selfId) // there will be no SearchFinished
         }
         case None => log.info("local response for unknown/expired request: " + tid + ", " + response)
       }      
@@ -257,10 +257,14 @@ object SearchPlugin {
     val system = context.system
     import system.dispatcher
     
+    override def postStop() {
+      indexManager.close()
+    }
+    
     override def receive = {
       case IndexManagerCommand(id, cmd) => cmd match {
         case Announce(item) => indexManager.offer(item)
-        case Lookup(searchString) => sender ! IndexManagerResponse(id, FoundItems(searchString, indexManager.search(searchString)))           
+        case Lookup(searchString) => sender ! IndexManagerResponse(id, FoundItems(searchString, indexManager.search(searchString))) // Note: there will be no SearchFinished message!
       }
       case ScheduleCleanup =>
         if (indexManager.cleanupNeeded) {

@@ -26,6 +26,21 @@ class LuceneContentIndexTest extends ContentIndexTest with BeforeAndAfterAll {
   }
   
   "LuceneIndex" when {
+      "field is specified" must {
+        "search by this field" in {
+          val item1 = newItem(title = "title swimming", description = "description swimming shooting")
+          val item2 = newItem(title = "title swimming shooting", description = "description swimming")
+          index.add(item1)
+          index.add(item2)
+          
+          index.lookup("shoot").toList.size should be(2)
+          index.lookup("title:shoot").toList.size should be(1)
+          index.lookup("description:shoot").toList.size should be(1)
+
+          index.lookup("title:shoot").toSet.contains(item2) should be(true)
+          index.lookup("description:shoot").toSet.contains(item1) should be(true)
+        }
+      }
       "items are added" must {
         "grow in size" in {
           afterEach()

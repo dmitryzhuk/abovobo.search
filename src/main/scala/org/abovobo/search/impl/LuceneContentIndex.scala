@@ -37,8 +37,8 @@ class LuceneContentIndex(val indexLocation: Path, val commitThreshold: Int = 0, 
   val directory = FSDirectory.open(indexLocation.toFile, NoLockFactory.getNoLockFactory)
   
   private val analyzer = {
-    //new EnglishAnalyzer(version)
-    new StandardAnalyzer(version, StandardAnalyzer.STOP_WORDS_SET)
+    new EnglishAnalyzer(version)
+    //new StandardAnalyzer(version, StandardAnalyzer.STOP_WORDS_SET)
   }
   
   private val writer = {

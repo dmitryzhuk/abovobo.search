@@ -19,7 +19,8 @@ import java.io.InputStream
 import java.util.zip.DeflaterOutputStream
 import java.util.zip.InflaterInputStream
 import java.util.zip.Inflater
-import scala.reflect.io.Streamable
+import java.nio.Buffer
+import akka.util.ByteString
 
 trait ContentIndex {
   def add(item: ContentItem)
@@ -82,7 +83,13 @@ object ContentIndex {
 
     def compress: CompressedContentItem = this
     def decompress: PlainContentItem = {
-      new PlainContentItem(id, title, size, Streamable.bytes(plainDataInputStream))
+      val buf = new Array[Byte](256)
+      val buffer = new ByteArrayOutputStream(512) 
+      val is = plainDataInputStream
+      
+      Iterator.continually(is.read(buf)).takeWhile(_ != -1).foreach { read => buffer.write(buf, 0, read) }
+      
+      new PlainContentItem(id, title, size, buffer.toByteArray) /// XXX: remove copying
     } 
     
     private def plainDataInputStream = new InflaterInputStream(new ByteArrayInputStream(descriptionData), new Inflater(true), 256)

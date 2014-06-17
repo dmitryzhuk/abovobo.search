@@ -59,7 +59,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
           log.warning("Cannot parse network message: \n{}\nException: {}", message.payload.toString, e)
           throw e
       }
-      log.debug("Got network message from " + remote + ": "  + searchMessage)
+      log.info("Got network message from " + remote + ": "  + searchMessage)
       
       searchMessage match {
         case SearchNetworkCommand(cmd, ttl) => cmd match {
@@ -112,8 +112,6 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   }
   
   def announce(from: Integer160, item: ContentItem, ttl: Int) {
-    log.debug("Node " + selfId + " got announce: " + item)    
-    
     indexManager ! IndexManagerCommand(tidFactory.next, Announce(item))
     if (ttl > 1)  {
       def announceToNetwork(item: ContentItem, ttl: Int) {
@@ -122,7 +120,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
           val tid = tidFactory.next
           val pm = new SearchPluginMessage(tid, msg)      
           
-          log.debug("Sending announce for " + item + " to " + n)
+          log.info("Sending announce for " + item + " to " + n)
           
           dhtController ! SendPluginMessage(pm, n)
         }
@@ -149,7 +147,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   }
   class NetworkResponder(tid: TID, sender: Node) extends Responder {
     def apply(response: Response) = {
-      log.debug("Sending search response " + response + " to " + sender)
+      log.info("Sending search response " + response + " to " + sender)
       dhtController ! createResponseMessage(tid, sender, response)
     }
   }
@@ -169,7 +167,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
       
       val nodes = randomNodesExcept(SearchOperation.SearchWidth, requesterId)
       nodes foreach { n => 
-        log.debug("Sending search request for " + searchString + " to " + n)
+        log.info("Sending search request for '" + searchString + "' to " + n)
         dhtController ! SendPluginMessage(msg, n)
       }
       nodes
@@ -240,7 +238,9 @@ object SearchPlugin {
   sealed trait Command extends SearchMessage
 
   final case class Announce(item: ContentItem) extends Command
-  final case class Lookup(searchString: String) extends Command
+  final case class Lookup(searchString: String) extends Command {
+    if (searchString.length > 128) throw new IllegalArgumentException("Search string is too long")
+  }
 
   sealed trait Response extends SearchMessage
 
@@ -437,12 +437,8 @@ object SearchPlugin {
         
       case cmd: Command => throw new IllegalArgumentException("Commands should be wrapped to SearchNetworkCommand: " + cmd)
     }
-    
-    buf += 'e'
-      
-    val res = buf.result
-    println(res.length + " =>>>> " + msg)
-    res
+    buf += 'e'  
+    buf.result
   }
   
 }

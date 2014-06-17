@@ -52,7 +52,7 @@ object SearchPluginSmokeTest extends App {
   val systemConfig = ConfigFactory.parseMap(Map(
       "akka.log-dead-letters" -> "true", 
       "akka.actor.debug.lifecycle" -> true,
-      "akka.loglevel" -> "debug",
+      "akka.loglevel" -> "info",
       
     "akka.actor.debug.receive" -> true,
     "akka.actor.debug.unhandled" -> true))

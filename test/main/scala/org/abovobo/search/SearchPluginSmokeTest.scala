@@ -104,26 +104,26 @@ object SearchPluginSmokeTest extends App {
     info.nodes.foreach { entry => println("\t" + entry)}
   }
   
-  val epnodes = DhtNode.spawnNodes(system, 20000, 5) 
-  val nodes = epnodes.map { _._2 }
+  val nodes = DhtNode.spawnNodes(system, 20000, 400) { (ep, node) =>
+    Thread.sleep(750)   
+    println("Started new node on " + ep)
+    (ep, node, addSearchPlugin(node))
+  }
   
-  // omit router node from search process
-  val searchPlugins = nodes.tail map { node => node -> addSearchPlugin(node) }
-
   Thread.sleep(5 * 1000)
   
-  println("--------- waiting -------")
+  println("--------- find node -------")
  
-//  for (i <- 1 to 5) {
-//    println("--------- find node -------")
-//
-//    nodes.foreach { n => 
-//      n ! Controller.FindNode(Integer160.random)
-//    }
-//    Thread.sleep(10 * 1000)
-//  }
+  val rnd = new Random
   
-  Thread.sleep(10 * 1000)
+  rnd.shuffle(nodes).take(nodes.size / 5) foreach { node =>
+    node._2 ! Controller.FindNode(Integer160.random)
+    Thread.sleep(1 * 1000)
+  }
+
+  println("--------- waiting -------")
+
+  Thread.sleep(10 * 1000)  
 
   //for (i <- 1 to 15) 
   {
@@ -134,18 +134,16 @@ object SearchPluginSmokeTest extends App {
     
     println("------------------------- table")  
     println
-    nodes.foreach(printTable)
+    nodes.foreach { n => printTable(n._2) }
     //Thread.sleep(60 * 1000)
   }
   
   println("--------- search test -------")
   
-  
   val first = ContentItem(Integer160.random.toString, "Cloud Atlas (2012)", 1025, new String(Files.readAllBytes(Paths.get("./test/test1.txt")), "UTF-8"))  
   val second = ContentItem(Integer160.random.toString, "A Beautiful Mind (2001)", 1026, new String(Files.readAllBytes(Paths.get("./test/test2.txt")), "UTF-8"))
   val shortOne = ContentItem(Integer160.random.toString, "short title 2", 100, "very short description")
   
-  val rnd = new Random
   
   def syncask(target: ActorRef, message: Any): Any = {
     Await.result(target ? message, 10 seconds)
@@ -178,17 +176,19 @@ object SearchPluginSmokeTest extends App {
     recvResult()
   }  
   
-  val announceGroup = rnd.shuffle(searchPlugins).take(1)
+  val announceGroup = rnd.shuffle(nodes).take(1)
   
-  announceGroup.foreach { case (node, search) =>
+  announceGroup.foreach { case (ep, node, search) =>
     search ! SearchPlugin.Announce(first)
+    Thread.sleep(1000)
     search ! SearchPlugin.Announce(second)
+    Thread.sleep(1000)    
     search ! SearchPlugin.Announce(shortOne)
   }
   
   Thread.sleep(3 * 1000)
   
-  rnd.shuffle(searchPlugins.filterNot(announceGroup.contains(_))).take(1).foreach { case (node, sp) =>
+  rnd.shuffle(nodes.filterNot(announceGroup.contains(_))).take(1).foreach { case (ep, node, sp) =>
     def testSearch(text: String) = {
       println(">>>>> Starting search for: " + text)
       val res = search(text)(sp)
@@ -204,16 +204,17 @@ object SearchPluginSmokeTest extends App {
  
   Thread.sleep(5 * 1000)
 
-  //for (i <- 1 to 15) 
+  for (i <- 1 to 5) 
   {
     println("------------------------- table")  
-    nodes.foreach(printTable)
+    nodes.foreach(n => printTable(n._2))
+    Thread.sleep(15 * 1000)
   }
   
   println("------------------------- cleaning up")
 
   Thread.sleep(1000)
-  nodes foreach { node => node ! DhtNode.Stop } 
+  nodes foreach { node => node._2 ! DhtNode.Stop } 
   Thread.sleep(3 * 1000)
   system.shutdown()
   system.awaitTermination()

@@ -40,8 +40,6 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   import system.dispatcher
   import SearchPlugin._
   
-  val announceWidth = 10
-  val announceTtl = 3
   val random = new Random()
 
   val currentRequests: TransactionManager[TID, SearchOperation] = new TransactionManager(this.context.system.scheduler, 5.seconds, { (id) => self ! SearchTimeout(id) })
@@ -62,10 +60,9 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
       log.info("Got network message from " + remote + ": "  + searchMessage)
       
       searchMessage match {
-        case SearchNetworkCommand(cmd, ttl) => cmd match {
-          case Announce(item) => announce(message.id, item, ttl)
-          case Lookup(searchString) => SearchOperation.start(message.id, searchString, new NetworkResponder(message.tid, new Node(message.id, remote)), ttl)
-        }
+        case Announce(item, params) => announce(message.id, item, params)
+
+        case Lookup(searchString, params) => SearchOperation.start(message.id, searchString, params, new NetworkResponder(message.tid, new Node(message.id, remote)))
        
         case response: Response => currentRequests.get(message.tid) match {
           case Some(search) =>
@@ -86,9 +83,9 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     // 
     // Messages from local service user
     // 
-    case Announce(item) => announce(selfId, item, announceTtl)
+    case Announce(item, params) => announce(selfId, item, params)
     
-    case Lookup(searchString) => SearchOperation.start(selfId,searchString, new DirectResponder(sender))
+    case Lookup(searchString, params) => SearchOperation.start(selfId,searchString, params, new DirectResponder(sender))
 
     // 
     // Messages from internal services/self
@@ -111,34 +108,28 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     case SearchTimeout(tid) => currentRequests.fail(tid) foreach(_.timeout)
   }
   
-  def announce(from: Integer160, item: ContentItem, ttl: Int) {
-    indexManager ! IndexManagerCommand(tidFactory.next, Announce(item))
-    if (ttl > 1)  {
-      def announceToNetwork(item: ContentItem, ttl: Int) {
-        val msg = SearchNetworkCommand(Announce(item), ttl.toByte)        
-        randomNodesExcept(announceWidth, from) foreach { n =>
-          val tid = tidFactory.next
-          val pm = new SearchPluginMessage(tid, msg)      
-          
-          log.info("Sending announce for " + item + " to " + n)
-          
-          dhtController ! SendPluginMessage(pm, n)
-        }
-      }      
-      announceToNetwork(item.compress, ttl - 1)
+  def announce(from: Integer160, item: ContentItem, params: AnnounceParams) {
+    indexManager ! IndexManagerCommand(tidFactory.next, Announce(item, params))
+    if (!params.lastStop)  {
+      val msg = Announce(item.compress, params.aged)
+      randomNodesExcept(params.width, from) foreach { n =>
+        val tid = tidFactory.next
+        val pm = new SearchPluginMessage(tid, msg)      
+        
+        log.info("Sending announce for " + item + " to " + n)
+        
+        dhtController ! SendPluginMessage(pm, n)
+      }
     }
   }
     
   def randomNodesExcept(count: Int, id: Integer160) = {
-    randomNodes2(count + 1).filter(_.id != id).take(count)
+    randomNodes(count + 1).filter(_.id != id).take(count)
   }
   
-  def randomNodes2(count: Int): Traversable[Node] = {
+  def randomNodes(count: Int): Traversable[Node] = {
     random.shuffle(dhtNodes()).take(count)
   }
-  
-  
-  /// active searches state
   
   trait Responder extends (Response => Any) 
 
@@ -162,10 +153,10 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     private val reportedResults: mutable.Set[String] = HashSet()
     private val pendingResults: mutable.Set[ContentRef] = HashSet()    
 
-    private def searchInNetwork(ttl: Int): Traversable[Node] = {
-      val msg = new SearchPluginMessage(tid, SearchNetworkCommand(Lookup(searchString), ttl.toByte))
+    private def searchInNetwork(params: SearchParams): Traversable[Node] = {
+      val msg = new SearchPluginMessage(tid, Lookup(searchString, params))
       
-      val nodes = randomNodesExcept(SearchOperation.SearchWidth, requesterId)
+      val nodes = randomNodesExcept(params.width, requesterId)
       nodes foreach { n => 
         log.info("Sending search request for '" + searchString + "' to " + n)
         dhtController ! SendPluginMessage(msg, n)
@@ -200,30 +191,21 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   }
   
   object SearchOperation {
-    val SearchTtl = 3
-    val SearchWidth = 10
-        
-    def start(requesterId: Integer160, searchString: String, responder: Responder, ttl: Int = SearchTtl): SearchOperation = {
+    def start(requesterId: Integer160, searchString: String, params: SearchParams, responder: Responder): SearchOperation = {
       val tid = tidFactory.next
       val search = new SearchOperation(requesterId, tid, searchString, responder)
   
       currentRequests.add(tid, search)
       
-      indexManager ! IndexManagerCommand(tid, Lookup(searchString))
+      indexManager ! IndexManagerCommand(tid, Lookup(searchString, params))
       
-      if (ttl > 1) {
-        val queriedNodes = search.searchInNetwork(ttl - 1).map(_.id)
-        search.pendingNodes ++= queriedNodes
+      if (!params.lastStop) {
+        search.pendingNodes ++= search.searchInNetwork(params.aged).map(_.id)
       }
       search
     }
   }
   
-  val serialization = SerializationExtension(system)
-  val serializer = serialization.findSerializerFor(Lookup("dummy"))
-
-  
-
   class SearchPluginMessage(tid: TID, msg: SearchMessage) extends PluginMessage(tid, selfId, pid, serializeMessage(msg))
 
   def createResponseMessage(tid: TID, to: Node, msg: Response) = SendPluginMessage(new SearchPluginMessage(tid, msg), to)
@@ -232,13 +214,30 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
 object SearchPlugin {
   def props(selfId: Integer160, dhtController: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[Node]) = 
     Props(classOf[SearchPlugin], selfId, Plugin.SearchPluginId, dhtController, indexManager, dhtNodes)
+
+  trait Params {
+    def ttl: Int
+    def lastStop = ttl <= 1    
+  }
+  
+  sealed case class AnnounceParams(ttl: Int, width: Int) extends Params {
+    if (ttl <= 0) throw new IllegalArgumentException("Zombies here!") 
+    def aged = new AnnounceParams(ttl - 1, width)
+  }  
+  sealed case class SearchParams(ttl: Int, width: Int) extends Params {
+    if (ttl <= 0) throw new IllegalArgumentException("Zombies here!") 
+    def aged = new SearchParams(ttl - 1, width)    
+  }
+  
+  val DefaultAnnounceParams = new AnnounceParams(3, 5)
+  val DefaultSearchParams = new SearchParams(3, 5)
   
   sealed trait SearchMessage
 
   sealed trait Command extends SearchMessage
 
-  final case class Announce(item: ContentItem) extends Command
-  final case class Lookup(searchString: String) extends Command {
+  final case class Announce(item: ContentItem, params: AnnounceParams = DefaultAnnounceParams) extends Command
+  final case class Lookup(searchString: String, params: SearchParams = DefaultSearchParams) extends Command {
     if (searchString.length > 128) throw new IllegalArgumentException("Search string is too long")
   }
 
@@ -263,8 +262,8 @@ object SearchPlugin {
     
     override def receive = {
       case IndexManagerCommand(id, cmd) => cmd match {
-        case Announce(item) => indexManager.offer(item)
-        case Lookup(searchString) => sender ! IndexManagerResponse(id, FoundItems(searchString, indexManager.search(searchString))) // Note: there will be no SearchFinished message!
+        case Announce(item, _) => indexManager.offer(item)
+        case Lookup(searchString, _) => sender ! IndexManagerResponse(id, FoundItems(searchString, indexManager.search(searchString))) // Note: there will be no SearchFinished message!
       }
       case ScheduleCleanup =>
         if (indexManager.cleanupNeeded) {
@@ -289,18 +288,14 @@ object SearchPlugin {
     case object Clear
   }
   
-    // private messages
-  case class SearchNetworkCommand(cmd: Command, ttl: Byte) extends SearchMessage
+  // private messages
   case class SearchTimeout(tid: TID)
   
   
   // utilities for controller communication
   def deserializeMessage(msg: ByteString): SearchMessage = {
-    //serializer.fromBinary(msg.toArray).asInstanceOf[SearchMessage]
-    
-    var events = Bencode.decode(msg)//.toIndexedSeq
-    
-    
+    var events = Bencode.decode(msg)
+
     def xthrow(code: Int, message: String) = throw new RuntimeException("error " + code + ": " +  message)
 
     def array(event: Bencode.Event): Array[Byte] = event match {
@@ -342,19 +337,21 @@ object SearchPlugin {
     string(next()) match {
       case "a" => // Announce
         next() // list
-        val ttl = integer(next())
         val id = string(next())
         val title = string(next())
         val size = integer(next())
         val description = array(next())
+        val ttl = integer(next())
+        val width = integer(next())
         ensure(classOf[Bencode.ListEnd])
-        SearchNetworkCommand(Announce(new CompressedContentItem(id, title, size, description)), ttl.toByte)
+        Announce(new CompressedContentItem(id, title, size, description), new AnnounceParams(ttl.toInt, width.toInt))
       case "l" => // Lookup
         next() // list
-        val ttl = integer(next())
         val searchString = string(next())
+        val ttl = integer(next())
+        val width = integer(next())
         ensure(classOf[Bencode.ListEnd])
-        SearchNetworkCommand(Lookup(searchString), ttl.toByte)
+        Lookup(searchString, new SearchParams(ttl.toInt, width.toInt))
       case "f" => // FoundItems
         next() // list
         val searchString = string(next())
@@ -396,23 +393,23 @@ object SearchPlugin {
     }
       
     msg match {
-      case SearchNetworkCommand(command, ttl) => command match {
-        case Announce(item) => 
-          putChar('a')
-          buf += 'l'
-            putNum(ttl)
-            putStr(item.id)
-            putStr(item.title)
-            putNum(item.size)
-            putArray(item.compress.descriptionData)
-          buf += 'e'
-        case Lookup(searchString) =>          
-          putChar('l')
-          buf += 'l'
-            putNum(ttl)
-            putStr(searchString)
-          buf += 'e'          
-      }
+      case Announce(item, params) => 
+        putChar('a')
+        buf += 'l'
+          putStr(item.id)
+          putStr(item.title)
+          putNum(item.size)
+          putArray(item.compress.descriptionData)
+          putNum(params.ttl)
+          putNum(params.width)
+        buf += 'e'
+      case Lookup(searchString, params) =>          
+        putChar('l')
+        buf += 'l'
+          putStr(searchString)
+          putNum(params.ttl)
+          putNum(params.width)
+        buf += 'e'          
       case FoundItems(str, found) =>
         putChar('f')
         buf += 'l'
@@ -434,8 +431,6 @@ object SearchPlugin {
           putNum(code)
           putStr(text)
         buf += 'e'
-        
-      case cmd: Command => throw new IllegalArgumentException("Commands should be wrapped to SearchNetworkCommand: " + cmd)
     }
     buf += 'e'  
     buf.result

@@ -48,11 +48,11 @@ import java.nio.file.Paths
 
 
 
-object SearchPluginSmokeTest extends App {
+object SearchPluginSmokeTest2 extends App {
   val systemConfig = ConfigFactory.parseMap(Map(
       "akka.log-dead-letters" -> "true", 
       "akka.actor.debug.lifecycle" -> true,
-      "akka.loglevel" -> "info",
+      "akka.loglevel" -> "debug",
       
     "akka.actor.debug.receive" -> true,
     "akka.actor.debug.unhandled" -> true))
@@ -104,19 +104,28 @@ object SearchPluginSmokeTest extends App {
     println(info.nodes.size + " entries: " + info.nodes.mkString(", "))
   }
   
-  val nodes = DhtNode.spawnNodes(system, 20000, 400) { (ep, node) =>
-    Thread.sleep(750)   
-    println("Started new node on " + ep)
-    (ep, node, addSearchPlugin(node))
-  }
   
-  Thread.sleep(5 * 1000)
+  val nodes = {
+    val ep = new InetSocketAddress(InetAddress.getLocalHost, 30000 + 1)
+    val node = DhtNode.createNode(system, ep, List(new InetSocketAddress(InetAddress.getLocalHost, 20000)))
+    val search = addSearchPlugin(node)
+    (ep, node, search) :: Nil
+  }
+     
+  //  (ep, )
+  //DhtNode.spawnNodes(system, 30000, 1) { (ep, node) =>
+  //  Thread.sleep(750)   
+  //  println("Started new node on " + ep)
+  //  (ep, node, addSearchPlugin(node))
+  //  }
+  
+  Thread.sleep(1 * 1000)
   
   println("--------- find node -------")
  
   val rnd = new Random
   
-  rnd.shuffle(nodes).take(nodes.size / 10) foreach { node =>
+  rnd.shuffle(nodes).take(nodes.size) foreach { node =>
     node._2 ! Controller.FindNode(Integer160.random)
     Thread.sleep(1 * 1000)
   }
@@ -139,10 +148,6 @@ object SearchPluginSmokeTest extends App {
   }
   
   println("--------- search test -------")
-  
-  val first = ContentItem(Integer160.random.toString, "Cloud Atlas (2012)", 1025, new String(Files.readAllBytes(Paths.get("./test/test1.txt")), "UTF-8"))  
-  val second = ContentItem(Integer160.random.toString, "A Beautiful Mind (2001)", 1026, new String(Files.readAllBytes(Paths.get("./test/test2.txt")), "UTF-8"))
-  val shortOne = ContentItem(Integer160.random.toString, "short title 2", 100, "very short description")
   
   
   def syncask(target: ActorRef, message: Any): Any = {
@@ -176,29 +181,49 @@ object SearchPluginSmokeTest extends App {
     recvResult()
   }  
   
-  val announceGroup = rnd.shuffle(nodes).take(1)
   
-  announceGroup.foreach { case (ep, node, search) =>
-    search ! SearchPlugin.Announce(first)
-    Thread.sleep(1000)
-    search ! SearchPlugin.Announce(second)
-    Thread.sleep(1000)    
-    search ! SearchPlugin.Announce(shortOne)
-  }
+//  val first = ContentItem(Integer160.random.toString, "Cloud Atlas (2012)", 1025, new String(Files.readAllBytes(Paths.get("./test/test1.txt")), "UTF-8"))  
+//  val second = ContentItem(Integer160.random.toString, "A Beautiful Mind (2001)", 1026, new String(Files.readAllBytes(Paths.get("./test/test2.txt")), "UTF-8"))
+//  val shortOne = ContentItem(Integer160.random.toString, "short title 2", 100, "very short description")  
+//  
+  val announceGroup = rnd.shuffle(nodes).take(0)
+//  
+//  announceGroup.foreach { case (ep, node, search) =>
+//    search ! SearchPlugin.Announce(first)
+//    Thread.sleep(1000)
+//    search ! SearchPlugin.Announce(second)
+//    Thread.sleep(1000)    
+//    search ! SearchPlugin.Announce(shortOne)
+//  }
+//  
+//  Thread.sleep(5 * 1000)
+//  
+//  rnd.shuffle(nodes.filterNot(announceGroup.contains(_))).take(1).foreach { case (ep, node, sp) =>
+//    def testSearch(text: String) = {
+//      println(">>>>> Starting search for: " + text)
+//      val res = search(text)(sp)
+//      println(">>>>> Search finished. Search result for " + text + ": " + res)
+//    }
+//    
+//    testSearch("Tom Hanks")
+//    testSearch("can't find anything")
+//    testSearch("\"1026 bytes\"")
+//  }  
   
-  Thread.sleep(5 * 1000)
+  val sp = nodes.head._3 
   
-  rnd.shuffle(nodes.filterNot(announceGroup.contains(_))).take(1).foreach { case (ep, node, sp) =>
-    def testSearch(text: String) = {
-      println(">>>>> Starting search for: " + text)
-      val res = search(text)(sp)
-      println(">>>>> Search finished. Search result for " + text + ": " + res)
+  var succeded = 0
+  for (i <- 1 to 1000) {
+    val res = search("Tom Hanks")(sp)
+    if (res.isEmpty) {
+      println("search: " + i + " FAILED")      
+    } else {
+      println("search: " + i + " SUCC")            
+      succeded += 1
     }
-    
-    testSearch("Tom Hanks")
-    testSearch("can't find anything")
-    testSearch("\"1026 bytes\"")
-  }  
+    Thread.sleep(100)
+  }
+  println("search test done, succ count " + succeded)
   
   println("------------------------- waiting")
  

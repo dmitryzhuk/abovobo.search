@@ -29,8 +29,8 @@ class SearchMessageSerializationTest extends WordSpec with Matchers  {
     
     def id = Integer160.random.toString
     
-    list ::= SearchNetworkCommand(Announce(newItem(size = 123)), 5)
-    list ::= SearchNetworkCommand(Lookup("title"), 0)
+    list ::= Announce(newItem(size = 123), AnnounceParams(2, 4) )
+    list ::= Lookup("title", SearchParams(1, 1))
     list ::= FoundItems("title", Set.empty)
     list ::= FoundItems("title", Set(new SimpleContentRef(id, "title", 1234)))
     list ::= FoundItems("title", Set(
@@ -39,6 +39,6 @@ class SearchMessageSerializationTest extends WordSpec with Matchers  {
     list ::= SearchFinished("title")
     list ::= Error(666, "666")
         
-    list
+    list.reverse
   } 
 }

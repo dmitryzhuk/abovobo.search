@@ -216,16 +216,30 @@ object SearchPlugin {
     Props(classOf[SearchPlugin], selfId, Plugin.SearchPluginId, dhtController, indexManager, dhtNodes)
 
   trait Params {
+    /** 
+     *  time to live
+     *  
+     *  1 means only this node (i.e. request will not be send over the network)
+     *  2 means this not and 'width' random nodes from network and so on
+     */
     def ttl: Int
+    
+    /**
+     * search with - how many random nodes from routing table to contact of each hop
+     */
+    def width: Int
     def lastStop = ttl <= 1    
   }
   
   sealed case class AnnounceParams(ttl: Int, width: Int) extends Params {
-    if (ttl <= 0) throw new IllegalArgumentException("Zombies here!") 
+    if (ttl <= 0) throw new IllegalArgumentException("Zombies here!")
+    if (width <= 0) throw new IllegalArgumentException
     def aged = new AnnounceParams(ttl - 1, width)
   }  
   sealed case class SearchParams(ttl: Int, width: Int) extends Params {
     if (ttl <= 0) throw new IllegalArgumentException("Zombies here!") 
+    if (width <= 0) throw new IllegalArgumentException
+    
     def aged = new SearchParams(ttl - 1, width)    
   }
   

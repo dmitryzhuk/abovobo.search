@@ -52,7 +52,7 @@ object SearchPluginSmokeTest2 extends App {
   val systemConfig = ConfigFactory.parseMap(Map(
       "akka.log-dead-letters" -> "true", 
       "akka.actor.debug.lifecycle" -> true,
-      "akka.loglevel" -> "debug",
+      "akka.loglevel" -> "error",
       
     "akka.actor.debug.receive" -> true,
     "akka.actor.debug.unhandled" -> true))
@@ -153,9 +153,9 @@ object SearchPluginSmokeTest2 extends App {
   def syncask(target: ActorRef, message: Any): Any = {
     Await.result(target ? message, 10 seconds)
   }
-  
-  def search(text: String)(implicit search: ActorRef): Set[ContentIndex.ContentRef] = {
-    val inbox = Inbox.create(system)
+
+  val inbox = Inbox.create(system)  
+  def search(text: String)(params: SearchParams)(implicit search: ActorRef): Set[ContentIndex.ContentRef] = {
     var result = Set.empty[ContentIndex.ContentRef]
       
     def receive() = {
@@ -176,7 +176,7 @@ object SearchPluginSmokeTest2 extends App {
       }
     }
     
-    search.tell(Lookup(text), inbox.getRef)  
+    search.tell(Lookup(text, params), inbox.getRef)
 
     recvResult()
   }  
@@ -214,7 +214,7 @@ object SearchPluginSmokeTest2 extends App {
   
   var succeded = 0
   for (i <- 1 to 1000) {
-    val res = search("Tom Hanks")(sp)
+    val res = search("Tom Hanks")(SearchParams(3, 3))(sp)
     if (res.isEmpty) {
       println("search: " + i + " FAILED")      
     } else {

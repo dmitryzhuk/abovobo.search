@@ -104,7 +104,7 @@ object SearchPluginSmokeTest extends App {
     println(info.nodes.size + " entries: " + info.nodes.mkString(", "))
   }
   
-  val nodes = DhtNode.spawnNodes(system, 20000, 400) { (ep, node) =>
+  val nodes = DhtNode.spawnNodes(system, 20000, 300) { (ep, node) =>
     Thread.sleep(750)   
     println("Started new node on " + ep)
     (ep, node, addSearchPlugin(node))

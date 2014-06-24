@@ -281,11 +281,11 @@ object SearchPlugin {
       }
       case ScheduleCleanup =>
         if (indexManager.cleanupNeeded) {
-          context.system.scheduler.scheduleOnce(30 seconds, self, Cleanup)
+          context.system.scheduler.scheduleOnce(30.seconds, self, Cleanup)
         }
       case Cleanup => {
         indexManager.cleanup()
-        context.system.scheduler.scheduleOnce(1 day, self, Cleanup)        
+        context.system.scheduler.scheduleOnce(1.day, self, Cleanup)
       }
       case Clear => indexManager.clear()
     }

@@ -1,36 +1,15 @@
 package org.abovobo.search
 
 import java.net.InetSocketAddress
-import java.net.Inet4Address
 import java.net.InetAddress
-import scala.concurrent.duration.FiniteDuration
-import java.util.concurrent.TimeUnit
-import akka.actor.ActorSystem
-import scala.concurrent.duration._
-import akka.actor.Actor
-import akka.actor.ActorLogging
-import com.typesafe.config.Config
-import com.typesafe.config.impl.SimpleConfig
-import com.typesafe.config.ConfigObject
 import com.typesafe.config.ConfigFactory
-import collection.JavaConversions._
 import akka.actor.Inbox
 import akka.actor.Props
-import akka.actor.ActorDSL._
-import org.abovobo.dht.persistence.H2Storage
-import org.abovobo.dht.persistence.Storage
-import org.abovobo.dht.persistence.Reader
-import org.abovobo.dht.persistence.Writer
-import org.abovobo.arm.Disposable
 import akka.actor.ActorRef
-import org.abovobo.dht.Agent
-import org.abovobo.dht.Table
 import org.abovobo.dht.Controller
-import org.abovobo.search.impl.InMemoryContentIndex
 import org.abovobo.search.SearchPlugin._
 import org.abovobo.search.ContentIndex.ContentItem
 import org.abovobo.integer.Integer160
-import akka.actor.ActorDSL._
 import akka.actor.ActorSystem
 import scala.concurrent.duration._
 import org.abovobo.dht.Plugin
@@ -49,6 +28,9 @@ import java.nio.file.Paths
 
 
 object SearchPluginSmokeTest extends App {
+
+  import collection.JavaConversions._
+
   val systemConfig = ConfigFactory.parseMap(Map(
       "akka.log-dead-letters" -> "true", 
       "akka.actor.debug.lifecycle" -> true,
@@ -60,7 +42,7 @@ object SearchPluginSmokeTest extends App {
   def localEndpoint(ordinal: Int) = new InetSocketAddress(InetAddress.getLocalHost, 20000 + ordinal)
   
   val system = ActorSystem("TestSystem", systemConfig)
-  val timeoutDuration: FiniteDuration = 7 seconds
+  val timeoutDuration: FiniteDuration = 7.seconds
   implicit val timeout: Timeout = timeoutDuration
   
   def createNode(ordinal: Int, routers: List[InetSocketAddress] = List()): ActorRef = {
@@ -87,7 +69,7 @@ object SearchPluginSmokeTest extends App {
         new IndexManager(getContentIndex, new IndexManagerRegistry("jdbc:h2:~/db/search-" + node.path.name), 100)), node.path.name + "-indexManager")
         
     val searchPlugin = system.actorOf(SearchPlugin.props(info.self.id, info.controller, indexManager, { () =>
-      Await.result(node ? DhtNode.Describe, 5 seconds).asInstanceOf[DhtNode.NodeInfo].nodes
+      Await.result(node ? DhtNode.Describe, 5.seconds).asInstanceOf[DhtNode.NodeInfo].nodes
     }), node.path.name + "-search")
 
     indexManager ! IndexManagerActor.Clear 
@@ -146,7 +128,7 @@ object SearchPluginSmokeTest extends App {
   
   
   def syncask(target: ActorRef, message: Any): Any = {
-    Await.result(target ? message, 10 seconds)
+    Await.result(target ? message, 10.seconds)
   }
   
   def search(text: String)(implicit search: ActorRef): Set[ContentIndex.ContentRef] = {
@@ -177,7 +159,8 @@ object SearchPluginSmokeTest extends App {
   }  
   
   val announceGroup = rnd.shuffle(nodes).take(1)
-  
+
+  /*
   announceGroup.foreach { case (ep, node, search) =>
     search ! SearchPlugin.Announce(first)
     Thread.sleep(1000)
@@ -185,9 +168,11 @@ object SearchPluginSmokeTest extends App {
     Thread.sleep(1000)    
     search ! SearchPlugin.Announce(shortOne)
   }
+  */
   
   Thread.sleep(5 * 1000)
-  
+
+  /*
   rnd.shuffle(nodes.filterNot(announceGroup.contains(_))).take(1).foreach { case (ep, node, sp) =>
     def testSearch(text: String) = {
       println(">>>>> Starting search for: " + text)
@@ -198,7 +183,8 @@ object SearchPluginSmokeTest extends App {
     testSearch("Tom Hanks")
     testSearch("can't find anything")
     testSearch("\"1026 bytes\"")
-  }  
+  }
+  */
   
   println("------------------------- waiting")
  

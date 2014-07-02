@@ -71,7 +71,7 @@ object SearchPluginSmokeTest2 extends App {
 
     indexManager ! IndexManagerActor.Clear 
     
-    info.controller ! PutPlugin(Plugin.SearchPluginId, searchPlugin)
+    info.controller ! PutPlugin(SearchPlugin.SearchPluginId, searchPlugin)
     
     searchPlugin
   }

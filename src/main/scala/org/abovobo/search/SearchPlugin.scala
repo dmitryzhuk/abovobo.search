@@ -2,39 +2,28 @@ package org.abovobo.search
 
 import org.abovobo.dht.Plugin
 import org.abovobo.dht.Controller
-import org.abovobo.dht.persistence.Reader
-import org.abovobo.dht.PluginMessage
 import akka.actor.ActorLogging
-import org.abovobo.search.ContentIndex.ContentItem
 import org.abovobo.integer.Integer160
-import org.abovobo.search.ContentIndex.ContentRef
+import org.abovobo.dht
 import org.abovobo.dht.Controller.SendPluginMessage
-import java.net.InetSocketAddress
-import org.abovobo.dht.PluginMessage
 import org.abovobo.dht.TID
+import org.abovobo.dht.PID
 import org.abovobo.dht.Node
 import akka.actor.ActorRef
 import scala.concurrent.duration._
-import org.abovobo.search.ContentIndex.CID
 import scala.collection.mutable
-import scala.collection.mutable.HashSet
-import akka.actor.Cancellable
 import org.abovobo.dht.TIDFactory
 import akka.actor.Actor
 import org.abovobo.search.SearchPlugin.IndexManagerActor._
 import akka.actor.Props
 import scala.util.Random
-import scala.collection.mutable.ArraySeq
-import scala.collection.mutable.ArraySeq
-import akka.serialization.SerializationExtension
 import akka.util.ByteStringBuilder
 import akka.util.ByteString
 import java.nio.charset.Charset
 import org.abovobo.conversions.Bencode
 import org.abovobo.search.ContentIndex._
 
-class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[Node]) extends Plugin(pid) with ActorLogging {
-  import SearchPlugin._
+class SearchPlugin(selfId: Integer160, pid: PID, dhtController: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[Node]) extends Plugin(pid) with ActorLogging {
 
   val system = this.context.system
   import system.dispatcher
@@ -42,19 +31,20 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   
   val random = new Random()
 
-  val currentRequests: TransactionManager[TID, SearchOperation] = new TransactionManager(this.context.system.scheduler, 5.seconds, { (id) => self ! SearchTimeout(id) })
+  val currentRequests: TransactionManager[TID, SearchOperation] =
+    new TransactionManager[TID, SearchOperation](this.context.system.scheduler, 5.seconds, { (id) => self ! SearchTimeout(id) })
   val tidFactory = TIDFactory.random
 
   override def receive = {
     //
     // Message from network
     ///
-    case Controller.Received(message: PluginMessage, remote) => {
+    case Controller.Received(message: dht.message.Plugin, remote) =>
       val searchMessage = try { 
         deserializeMessage(message.payload)
       } catch {
         case e: Throwable =>
-          log.warning("Cannot parse network message: \n{}\nException: {}", message.payload.toString, e)
+          log.warning("Cannot parse network message: \n{}\nException: {}", message.payload.toString(), e)
           throw e
       }
       log.info("Got network message from " + remote + ": "  + searchMessage)
@@ -69,30 +59,28 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
             response match {
               case FoundItems(searchString, items) => search.addResults(message.id, items)
               case SearchFinished(searchString) => search.finishForNode(message.id)
-              case Error(code, error) => {
+              case Error(code, error) =>
                 log.error("error message from " + message.id + "@" + remote + ": " + error)
                 search.finishForNode(message.id)
-              }
             }
           case None => log.warning("unexpected network response from " + remote + " for unknown/expired request: " + message.tid + ", " + response)
         }
         case _ => throw new IllegalStateException("command should be always wrapped into network command")
       }
-    }
-    
+
     // 
     // Messages from local service user
     // 
     case Announce(item, params) => announce(selfId, item, params)
     
-    case Lookup(searchString, params) => SearchOperation.start(selfId,searchString, params, new DirectResponder(sender))
+    case Lookup(searchString, params) => SearchOperation.start(selfId,searchString, params, new DirectResponder(this.sender()))
 
     // 
     // Messages from internal services/self
     //
-    case IndexManagerResponse(tid, response) => { 
+    case IndexManagerResponse(tid, response) =>
       currentRequests.get(tid) match {
-        case Some(search) => {
+        case Some(search) =>
           log.debug("Local response: " + response)
           response match {
             case FoundItems(searchString, refs) => search.addResults(selfId, refs)
@@ -100,20 +88,18 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
             case SearchFinished(searchString) => // shouldn't happen
           }
           search.finishForNode(selfId) // there will be no SearchFinished
-        }
         case None => log.info("local response for unknown/expired request: " + tid + ", " + response)
       }      
-    }
-      
-    case SearchTimeout(tid) => currentRequests.fail(tid) foreach(_.timeout)
+
+    case SearchTimeout(tid) => currentRequests.fail(tid) foreach(_.timeout())
   }
   
   def announce(from: Integer160, item: ContentItem, params: AnnounceParams) {
-    indexManager ! IndexManagerCommand(tidFactory.next, Announce(item, params))
+    indexManager ! IndexManagerCommand(tidFactory.next(), Announce(item, params))
     if (!params.lastStop)  {
       val msg = Announce(item.compress, params.aged)
       randomNodesExcept(params.width, from) foreach { n =>
-        val tid = tidFactory.next
+        val tid = tidFactory.next()
         val pm = new SearchPluginMessage(tid, msg)      
         
         log.info("Sending announce for " + item + " to " + n)
@@ -149,9 +135,9 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
       val searchString: String,
       respond: Response => Any) {
     
-    private val pendingNodes: mutable.Set[Integer160] = HashSet(selfId)
-    private val reportedResults: mutable.Set[String] = HashSet()
-    private val pendingResults: mutable.Set[ContentRef] = HashSet()    
+    private val pendingNodes: mutable.Set[Integer160] = mutable.HashSet(selfId)
+    private val reportedResults: mutable.Set[String] = mutable.HashSet()
+    //private val pendingResults: mutable.Set[ContentRef] = mutable.HashSet()
 
     private def searchInNetwork(params: SearchParams): Traversable[Node] = {
       val msg = new SearchPluginMessage(tid, Lookup(searchString, params))
@@ -169,7 +155,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   
       /// !!! TODO: use search.pendingResults to accumulate results here and fire them in bunches to requester (like each 1 second, or something else) to avoid excessive traffic
       
-      if (!uniqueResults.isEmpty) {
+      if (uniqueResults.nonEmpty) {
         respond(FoundItems(searchString, uniqueResults))
         reportedResults ++= uniqueResults.map(_.id)      
       }
@@ -192,7 +178,7 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
   
   object SearchOperation {
     def start(requesterId: Integer160, searchString: String, params: SearchParams, responder: Responder): SearchOperation = {
-      val tid = tidFactory.next
+      val tid = tidFactory.next()
       val search = new SearchOperation(requesterId, tid, searchString, responder)
   
       currentRequests.add(tid, search)
@@ -206,14 +192,15 @@ class SearchPlugin(selfId: Integer160, pid: Plugin.PID, dhtController: ActorRef,
     }
   }
   
-  class SearchPluginMessage(tid: TID, msg: SearchMessage) extends PluginMessage(tid, selfId, pid, serializeMessage(msg))
+  class SearchPluginMessage(tid: TID, msg: SearchMessage) extends dht.message.Plugin(tid, selfId, pid, serializeMessage(msg))
 
   def createResponseMessage(tid: TID, to: Node, msg: Response) = SendPluginMessage(new SearchPluginMessage(tid, msg), to)
 }
 
 object SearchPlugin {
-  def props(selfId: Integer160, dhtController: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[Node]) = 
-    Props(classOf[SearchPlugin], selfId, Plugin.SearchPluginId, dhtController, indexManager, dhtNodes)
+  val SearchPluginId = new PID(1)
+  def props(selfId: Integer160, dhtController: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[Node]) =
+    Props(classOf[SearchPlugin], selfId, SearchPluginId, dhtController, indexManager, dhtNodes)
 
   trait Params {
     /** 
@@ -283,10 +270,10 @@ object SearchPlugin {
         if (indexManager.cleanupNeeded) {
           context.system.scheduler.scheduleOnce(30.seconds, self, Cleanup)
         }
-      case Cleanup => {
+      case Cleanup =>
         indexManager.cleanup()
         context.system.scheduler.scheduleOnce(1.day, self, Cleanup)
-      }
+
       case Clear => indexManager.clear()
     }
     
@@ -308,7 +295,7 @@ object SearchPlugin {
   
   // utilities for controller communication
   def deserializeMessage(msg: ByteString): SearchMessage = {
-    var events = Bencode.decode(msg)
+    val events = Bencode.decode(msg)
 
     def xthrow(code: Int, message: String) = throw new RuntimeException("error " + code + ": " +  message)
 
@@ -317,27 +304,31 @@ object SearchPlugin {
       case _ => xthrow(0, "Malformed packet")
     }
 
+    /*
     def integer160(event: Bencode.Event): Integer160 = event match {
       case Bencode.Bytestring(value) => new Integer160(value)
       case _ => xthrow(0, "Malformed packet")
     }
+    */
 
     def string(event: Bencode.Event): String = event match {
       case Bencode.Bytestring(value) => new String(value, "UTF-8")
       case _ => xthrow(0, "Malformed packet")
     }
-    
+
+    /*
     def byteString(event: Bencode.Event): ByteString = event match {
       case Bencode.Bytestring(value) => ByteString(value) 
       case _ => xthrow(0, "Malformed packet")      
     }
+    */
     
     def integer(event: Bencode.Event): Long = event match {
       case Bencode.Integer(value) => value
       case _ => xthrow(0, "Malformed packet")
     }
     
-    def next(): Bencode.Event = events.next
+    def next(): Bencode.Event = events.next()
     
     def ensure(ec: Class[_ <: Bencode.Event]) = {
       val n = next()
@@ -447,7 +438,7 @@ object SearchPlugin {
         buf += 'e'
     }
     buf += 'e'  
-    buf.result
+    buf.result()
   }
   
 }

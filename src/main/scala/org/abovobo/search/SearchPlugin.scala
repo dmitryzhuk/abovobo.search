@@ -1,11 +1,11 @@
 package org.abovobo.search
 
 import org.abovobo.dht.Plugin
-import org.abovobo.dht.Controller
 import akka.actor.ActorLogging
+import org.abovobo.dht.controller.Controller
 import org.abovobo.integer.Integer160
 import org.abovobo.dht
-import org.abovobo.dht.Controller.SendPluginMessage
+import Controller.SendPluginMessage
 import org.abovobo.dht.TID
 import org.abovobo.dht.PID
 import org.abovobo.dht.Node

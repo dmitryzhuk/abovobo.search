@@ -6,7 +6,7 @@ import com.typesafe.config.ConfigFactory
 import akka.actor.Inbox
 import akka.actor.Props
 import akka.actor.ActorRef
-import org.abovobo.dht.Controller
+import org.abovobo.dht.controller.Controller
 import org.abovobo.search.SearchPlugin._
 import org.abovobo.integer.Integer160
 import akka.actor.ActorSystem
@@ -16,7 +16,7 @@ import java.util.concurrent.TimeoutException
 import akka.pattern.ask
 import akka.util.Timeout
 import scala.concurrent.Await
-import org.abovobo.dht.Controller.PutPlugin
+import Controller.PutPlugin
 import org.abovobo.dht.DhtNode
 import scala.util.Random
 import java.io.File

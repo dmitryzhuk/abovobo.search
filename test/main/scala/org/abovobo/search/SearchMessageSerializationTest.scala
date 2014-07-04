@@ -13,8 +13,10 @@ class SearchMessageSerializationTest extends WordSpec with Matchers  {
         createMessages foreach { msg =>
           val bin = SearchPlugin.serializeMessage(msg) 
           val restored = SearchPlugin.deserializeMessage(bin)
-          SearchPlugin.serializeMessage(restored) shouldEqual(bin)
-          restored shouldEqual(msg)
+          println("testing " + msg)
+          val restoredBin = SearchPlugin.serializeMessage(restored) 
+          SearchPlugin.deserializeMessage(restoredBin) shouldEqual(msg)
+          // we cannot compare binary representations 'cause items order is unspecified
         }
       }
     }

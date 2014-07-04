@@ -19,6 +19,9 @@ abstract class ContentIndexTest extends WordSpec with Matchers with BeforeAndAft
     "ContentIndex" when {
       "created" must {
         "be empty" in {
+          index.clear()
+          index.close()
+          index = newIndex
           index.count should be(0)
           index.lookup("*") should be('empty)
           index.clear()

@@ -13,6 +13,7 @@ abstract class ContentIndexTest extends WordSpec with Matchers with BeforeAndAft
     
     override def beforeEach() {
       index = newIndex()
+      index.clear()
     }
     
     "ContentIndex" when {
@@ -47,9 +48,13 @@ abstract class ContentIndexTest extends WordSpec with Matchers with BeforeAndAft
       "remove() is called" must {
         "delete item from index" in {
           val item = newItem("title5")
+          index.add(newItem())
+          index.add(newItem())          
           index.add(item)
           index.lookup("title5").toList.exists(_.id == item.id) should be(true)
+          val count = index.count
           index.remove(item.id)
+          index.count should be(count - 1)          
           index.lookup("title5").toList.exists(_.id == item.id) should be(false)
         }
       }

@@ -85,7 +85,7 @@ class LuceneContentIndex(val indexLocation: Path, val commitThreshold: Int = 0, 
     writer.commit()
   }
 
-  def count: Int = reader.getDocCount("infohash")
+  def count: Int = writer.numDocs() 
   
   def size: Long = Files.size(indexLocation)
   

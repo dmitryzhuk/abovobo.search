@@ -73,10 +73,12 @@ class IndexManager(
     val itemsCount = reg.count 
     val desiredCount = (maxItemsCount * yellowZoneFactor).toInt
     if (itemsCount > desiredCount) {
-      //val oldItems = reg.sorted({ }, Some(10))
       val oldItemsDate = System.currentTimeMillis - itemsLifetime
       val oldItems = reg.lastAnnounced(oldItemsDate, itemsCount - desiredCount)
-      oldItems.foreach { s => reg.remove(s.id) }
+      oldItems.foreach { s => 
+        ci.remove(s.id)
+        reg.remove(s.id)
+      }
     }
   }
   
@@ -97,7 +99,7 @@ object IndexManager {
   val DefaultRedZoneFactor = 0.9
   val DefaultYellowZoneFactor = 0.75
   
-  val DefaultItemsLifetime = 3 * 24 * 60 * 60 * 1000 // days
+  val DefaultItemsLifetime = 3 * 24 * 60 * 60 * 1000 // 3 days
   
   sealed trait OfferResult
   

@@ -59,7 +59,7 @@ class IndexManagerRegistry(dbUrl: String) extends Closeable {
   }
   
   /** @return a maximum 'top' items which were lastly announced longest time ago and before 'olderThan' */
-  def lastAnnounced(olderThan: Long, top: Int) = {
+  def lastAnnounced(olderThan: Long, top: Int): List[ContentItemStats] = {
     stats.sortBy(_.lastAnnounced).filter(_.lastAnnounced < olderThan).take(top).list
   }
      

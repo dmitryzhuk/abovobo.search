@@ -11,9 +11,8 @@ class LuceneContentIndexTest extends ContentIndexTest with BeforeAndAfterAll {
   tempDir.mkdirs
   
   override def afterEach() {
-    val i = this.index.asInstanceOf[LuceneContentIndex]
-    i.clear()
-    i.close()
+    index.clear()
+    index.close()
   }
   
   override def afterAll() {
@@ -21,9 +20,7 @@ class LuceneContentIndexTest extends ContentIndexTest with BeforeAndAfterAll {
     //Files.delete(tempDir.toPath)
   }
   
-  def newIndex = {
-    new LuceneContentIndex(tempDir.toPath)
-  }
+  def newIndex = new LuceneContentIndex(tempDir.toPath)
   
   "LuceneIndex" when {
       "field is specified" must {
@@ -53,7 +50,7 @@ class LuceneContentIndexTest extends ContentIndexTest with BeforeAndAfterAll {
             val item = newItem(title = "title title_" + UUID.randomUUID.toString, description = "description description_" + UUID.randomUUID.toString)
             index.add(item)
           }
-          index.asInstanceOf[LuceneContentIndex].close()
+          index.close()
           index = new LuceneContentIndex(tempDir.toPath)
 
           val oldSize = index.size
@@ -62,7 +59,7 @@ class LuceneContentIndexTest extends ContentIndexTest with BeforeAndAfterAll {
             val item = newItem(title = "title title_" + UUID.randomUUID.toString, description = "description description_" + UUID.randomUUID.toString)
             index.add(item)
           }
-          index.asInstanceOf[LuceneContentIndex].close()          
+          index.close()          
           val newSize = index.size
           newSize should be > oldSize
           

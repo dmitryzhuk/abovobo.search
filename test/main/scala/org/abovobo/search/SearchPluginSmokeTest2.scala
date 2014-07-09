@@ -7,11 +7,10 @@ import akka.actor.Inbox
 import akka.actor.Props
 import akka.actor.ActorRef
 import org.abovobo.dht.Controller
-import org.abovobo.search.SearchPlugin._
+import org.abovobo.search.SearchPluginActor._
 import org.abovobo.integer.Integer160
 import akka.actor.ActorSystem
 import scala.concurrent.duration._
-import org.abovobo.dht.Plugin
 import java.util.concurrent.TimeoutException
 import akka.pattern.ask
 import akka.util.Timeout
@@ -45,34 +44,30 @@ object SearchPluginSmokeTest2 extends App {
     system.actorOf(DhtNode.props(localEndpoint(ordinal), routers), "Node-" + ordinal.toString)
   }
   
-  val luceneIndexHome = {
-    val h = new File(System.getProperty("user.home") + "/db/lucene")
+  val searchIndexHome = {
+    val h = new File(System.getProperty("user.home") + "/db/search")
     h.mkdirs
     h
   }
     
   def addSearchPlugin(node: ActorRef): ActorRef = {
-    
     val info = Await.result(node ? DhtNode.Describe, timeoutDuration).asInstanceOf[DhtNode.NodeInfo]
     
-    def getContentIndex = {
-      val dir = new File(luceneIndexHome, node.path.name)
-      dir.mkdirs
-      new LuceneContentIndex(dir.toPath)
-    }
-    
-    val indexManager = system.actorOf(Props(classOf[IndexManagerActor], 
-        new IndexManager(getContentIndex, new IndexManagerRegistry("jdbc:h2:~/db/search-" + node.path.name), 100)), node.path.name + "-indexManager")
-        
-    val searchPlugin = system.actorOf(SearchPlugin.props(info.self.id, info.controller, indexManager, { () =>
+    val name = node.path.name
+    val home = new File(searchIndexHome, name).toPath()
+      
+    val searchPlugin = new SearchPlugin(
+        home, 
+        name,
+        system, 
+        info.controller, { () => info.self.id }, { () =>
       Await.result(node ? DhtNode.Describe, 5.seconds).asInstanceOf[DhtNode.NodeInfo].nodes
-    }), node.path.name + "-search")
-
-    indexManager ! IndexManagerActor.Clear 
+    })
     
-    info.controller ! Controller.PutPlugin(SearchPlugin.SearchPluginId, searchPlugin)
     
-    searchPlugin
+    searchPlugin.indexManager ! IndexManagerActor.Clear 
+    
+    searchPlugin.search 
   }
   
   def printTable(node: ActorRef) {
@@ -90,13 +85,6 @@ object SearchPluginSmokeTest2 extends App {
     (ep, node, search) :: Nil
   }
      
-  //  (ep, )
-  //DhtNode.spawnNodes(system, 30000, 1) { (ep, node) =>
-  //  Thread.sleep(750)   
-  //  println("Started new node on " + ep)
-  //  (ep, node, addSearchPlugin(node))
-  //  }
-  
   Thread.sleep(1 * 1000)
   
   println("--------- find node -------")

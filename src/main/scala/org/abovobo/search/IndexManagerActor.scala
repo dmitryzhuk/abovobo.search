@@ -37,5 +37,5 @@ object IndexManagerActor {
   case object Clear
   case object Cleanup
    
-  val CleanupInterval: FiniteDuration = 1 day
+  val CleanupInterval: FiniteDuration = 1.day
 }

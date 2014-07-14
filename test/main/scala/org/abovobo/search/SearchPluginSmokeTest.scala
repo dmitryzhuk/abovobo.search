@@ -21,7 +21,7 @@ import java.io.File
 import org.abovobo.search.impl.LuceneContentIndex
 import java.nio.file.Files
 import java.nio.file.Paths
-import org.abovobo.dht.Controller
+import org.abovobo.dht.controller.Controller
 
 
 

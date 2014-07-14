@@ -6,7 +6,7 @@ import com.typesafe.config.ConfigFactory
 import akka.actor.Inbox
 import akka.actor.Props
 import akka.actor.ActorRef
-import org.abovobo.dht.Controller
+import org.abovobo.dht.controller.Controller
 import org.abovobo.search.SearchPluginActor._
 import org.abovobo.integer.Integer160
 import akka.actor.ActorSystem

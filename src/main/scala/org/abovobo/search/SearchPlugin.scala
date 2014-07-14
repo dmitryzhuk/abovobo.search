@@ -10,7 +10,7 @@ import org.abovobo.search.impl.LuceneContentIndex
 import SearchPlugin._
 import org.abovobo.dht.PID
 import akka.actor.Props
-import org.abovobo.dht.Controller
+import org.abovobo.dht.controller.Controller
 
 class SearchPlugin(
     val homeDir: Path,

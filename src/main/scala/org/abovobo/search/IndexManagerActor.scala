@@ -3,7 +3,7 @@ package org.abovobo.search
 import akka.actor.Actor
 import akka.actor.ActorLogging
 import scala.concurrent.duration._
-import org.abovobo.search.SearchPluginActor._
+import org.abovobo.search.SearchPlugin._
 import org.abovobo.dht.TID
 
 class IndexManagerActor(indexManager: IndexManager) extends Actor with ActorLogging {

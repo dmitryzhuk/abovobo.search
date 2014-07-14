@@ -6,7 +6,7 @@ import com.typesafe.config.ConfigFactory
 import akka.actor.Inbox
 import akka.actor.Props
 import akka.actor.ActorRef
-import org.abovobo.search.SearchPluginActor._
+import org.abovobo.search.SearchPlugin._
 import org.abovobo.search.ContentIndex.ContentItem
 import org.abovobo.integer.Integer160
 import akka.actor.ActorSystem
@@ -21,65 +21,18 @@ import java.io.File
 import org.abovobo.search.impl.LuceneContentIndex
 import java.nio.file.Files
 import java.nio.file.Paths
-import org.abovobo.dht.controller.Controller
+import org.abovobo.dht.Controller
+import org.abovobo.search.suite.SearchTestBase
 
 
 
-object SearchPluginSmokeTest extends App {
+object SearchPluginSmokeTest extends App with SearchTestBase {
 
   import collection.JavaConversions._
-
-  val systemConfig = ConfigFactory.parseMap(Map(
-      "akka.log-dead-letters" -> "true", 
-      "akka.actor.debug.lifecycle" -> true,
-      "akka.loglevel" -> "info",
-      
-    "akka.actor.debug.receive" -> true,
-    "akka.actor.debug.unhandled" -> true))
-    
-  def localEndpoint(ordinal: Int) = new InetSocketAddress(InetAddress.getLocalHost, 20000 + ordinal)
   
-  val system = ActorSystem("TestSystem", systemConfig)
-  val timeoutDuration: FiniteDuration = 7.seconds
-  implicit val timeout: Timeout = timeoutDuration
+  val (routerEp, router) = createRouter()
   
-  def createNode(ordinal: Int, routers: List[InetSocketAddress] = List()): ActorRef = {
-    system.actorOf(DhtNode.props(localEndpoint(ordinal), routers), "Node-" + ordinal.toString)
-  }
-  
-  val searchIndexHome = {
-    val h = new File(System.getProperty("user.home") + "/db/search")
-    h.mkdirs
-    h
-  }
-    
-  def addSearchPlugin(node: ActorRef): ActorRef = {
-    val info = Await.result(node ? DhtNode.Describe, timeoutDuration).asInstanceOf[DhtNode.NodeInfo]
-    
-    val name = node.path.name
-    val home = new File(searchIndexHome, name).toPath()
-      
-    val searchPlugin = new SearchPlugin(
-        home, 
-        name,
-        system, 
-        info.controller, { () => info.self.id }, { () =>
-      Await.result(node ? DhtNode.Describe, 5.seconds).asInstanceOf[DhtNode.NodeInfo].nodes
-    })
-        
-    searchPlugin.indexManager ! IndexManagerActor.Clear 
-    
-    searchPlugin.search 
-  }
-  
-  def printTable(node: ActorRef) {
-    val info = Await.result(node ? DhtNode.Describe, timeoutDuration).asInstanceOf[DhtNode.NodeInfo]
-    
-    println("dht table for: " + info.self.id + "@" + info.self.address)
-    println(info.nodes.size + " entries: " + info.nodes.mkString(", "))
-  }
-  
-  val nodes = DhtNode.spawnNodes(system, 20000, 30) { (ep, node) =>
+  val nodes = DhtNode.spawnNodes(system, 20000, 200, List(routerEp)) { (ep, node) =>
     Thread.sleep(750)   
     println("Started new node on " + ep)
     (ep, node, addSearchPlugin(node))
@@ -89,8 +42,6 @@ object SearchPluginSmokeTest extends App {
   
   println("--------- find node -------")
  
-  val rnd = new Random
-  
   rnd.shuffle(nodes).take(nodes.size / 10) foreach { node =>
     node._2 ! Controller.FindNode(Integer160.random)
     Thread.sleep(1 * 1000)
@@ -100,7 +51,6 @@ object SearchPluginSmokeTest extends App {
 
   Thread.sleep(10 * 1000)  
 
-  //for (i <- 1 to 15) 
   {
     
     println("Used Mem: " + (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory() * 1.0 / 1024 / 1024))
@@ -146,7 +96,7 @@ object SearchPluginSmokeTest extends App {
       }
     }
     
-    search.tell(Lookup(text), inbox.getRef)  
+    search.tell(Lookup(text), inbox.getRef)
 
     recvResult()
   }  

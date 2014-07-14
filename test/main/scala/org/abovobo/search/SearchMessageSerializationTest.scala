@@ -1,7 +1,7 @@
 package org.abovobo.search
 
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpec}
-import org.abovobo.search.SearchPluginActor._
+import org.abovobo.search.SearchPlugin._
 import org.abovobo.integer.Integer160
 import org.abovobo.search.ContentIndex.ContentItem
 import org.abovobo.search.ContentIndex._
@@ -11,11 +11,11 @@ class SearchMessageSerializationTest extends WordSpec with Matchers  {
     "serialized" must {
       "be parsable" in {
         createMessages foreach { msg =>
-          val bin = SearchPluginActor.serializeMessage(msg) 
-          val restored = SearchPluginActor.deserializeMessage(bin)
+          val bin = SearchPlugin.serializeMessage(msg) 
+          val restored = SearchPlugin.deserializeMessage(bin)
           println("testing " + msg)
-          val restoredBin = SearchPluginActor.serializeMessage(restored) 
-          SearchPluginActor.deserializeMessage(restoredBin) shouldEqual(msg)
+          val restoredBin = SearchPlugin.serializeMessage(restored) 
+          SearchPlugin.deserializeMessage(restoredBin) shouldEqual(msg)
           // we cannot compare binary representations 'cause items order is unspecified
         }
       }

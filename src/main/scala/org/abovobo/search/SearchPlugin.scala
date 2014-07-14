@@ -1,7 +1,7 @@
 package org.abovobo.search
 
 import akka.actor.ActorLogging
-import org.abovobo.dht.Controller
+import org.abovobo.dht.controller.Controller
 import org.abovobo.integer.Integer160
 import org.abovobo.dht
 import Controller.SendPluginMessage

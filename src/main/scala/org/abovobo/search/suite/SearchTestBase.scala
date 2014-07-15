@@ -3,13 +3,11 @@ package org.abovobo.search.suite
 import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
-
 import scala.collection.JavaConversions._
 import scala.concurrent.Await
 import scala.concurrent.duration.DurationInt
 import scala.concurrent.duration.FiniteDuration
 import scala.util.Random
-
 import org.abovobo.dht.DhtNode
 import org.abovobo.search.ContentIndex
 import org.abovobo.search.SearchPlugin
@@ -17,15 +15,15 @@ import org.abovobo.search.SearchPlugin.FoundItems
 import org.abovobo.search.SearchPlugin.Lookup
 import org.abovobo.search.SearchPlugin.SearchFinished
 import org.abovobo.search.SearchPlugin.SearchParams
-
 import com.typesafe.config.ConfigFactory
-
 import akka.actor.ActorRef
 import akka.actor.ActorSystem
 import akka.actor.Inbox
 import akka.pattern.ask
 import akka.util.Timeout
 import akka.util.Timeout.durationToTimeout
+import java.nio.file.Path
+import java.nio.file.Paths
 
 
 trait SearchTestBase {
@@ -54,7 +52,7 @@ trait SearchTestBase {
   
   def createRouter(ordinal: Int = 0) = {
     val routerEp = new InetSocketAddress(InetAddress.getLocalHost, routerPortBase + ordinal)
-    val router = DhtNode.createNode(system, routerEp)
+    val router = DhtNode.createNode(dhtHome.resolve("Router-" + routerPortBase + ordinal), system, routerEp)
     (routerEp, router)
   }
   
@@ -67,13 +65,24 @@ trait SearchTestBase {
     println(info.nodes.size + " entries: " + info.nodes.mkString(", "))
   }  
   
-  def searchIndexHome = new File(System.getProperty("user.home") + "/db/search")
-
+  def homeDir = Paths.get("./search-data")
+  
+  def searchHome = homeDir.resolve("search")
+  def dhtHome = homeDir.resolve("dht")
+  
+  def spawnNodes[A](count: Int, routers: List[InetSocketAddress])(f: (InetSocketAddress, ActorRef) => A): Seq[A] = {
+    (1 until count) map { i =>
+      val ep = new InetSocketAddress(InetAddress.getLocalHost, portBase + i)
+      val home = dhtHome.resolve("Node-" + portBase + i)
+      f(ep, DhtNode.createNode(home, system, ep, routers))
+    }
+  }
+  
   def addSearchPlugin(node: ActorRef): ActorRef = {
     val info = Await.result(node ? DhtNode.Describe, timeoutDuration).asInstanceOf[DhtNode.NodeInfo]
     
     val name = node.path.name
-    val home = new File(searchIndexHome, name).toPath()
+    val home = searchHome.resolve(name)
       
     val search = SearchPlugin(
         home, 

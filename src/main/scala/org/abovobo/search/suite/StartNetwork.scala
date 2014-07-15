@@ -13,7 +13,7 @@ object StartNetwork extends App with SearchTestBase {
   println("===== Starting Network on local host, router: " + routerEp + ", nodes count: " + nodesCount + " =====")
   
   
-  val nodes = DhtNode.spawnNodes(system, portBase, nodesCount, List(routerEp)) { (ep, node) =>
+  val nodes = spawnNodes(nodesCount, List(routerEp)) { (ep, node) =>
     Thread.sleep(750)   
     println("Starting new node on " + ep)
     (ep, node, addSearchPlugin(node))

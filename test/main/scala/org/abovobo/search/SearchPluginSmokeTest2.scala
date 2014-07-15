@@ -29,9 +29,11 @@ import java.util.concurrent.atomic.AtomicInteger
 
 object SearchPluginSmokeTest2 extends App with SearchTestBase {
   override def debugLevel = "error"
+    
+  override def homeDir = Paths.get("~/db/smoke2-search-data")    
 
   val ep = new InetSocketAddress(InetAddress.getLocalHost, 30000 + 1)
-  val node = DhtNode.createNode(system, ep, List(new InetSocketAddress(InetAddress.getLocalHost, routerPortBase)))
+  val node = DhtNode.createNode(homeDir.resolve("client"), system, ep, List(new InetSocketAddress(InetAddress.getLocalHost, routerPortBase)))
   val searchPlugin = addSearchPlugin(node)
      
   Thread.sleep(1 * 1000)

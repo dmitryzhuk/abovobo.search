@@ -28,11 +28,13 @@ import org.abovobo.search.suite.SearchTestBase
 
 object SearchPluginSmokeTest extends App with SearchTestBase {
 
+  override def homeDir = Paths.get("~/db/smoke-search-data")
+
   import collection.JavaConversions._
   
   val (routerEp, router) = createRouter()
   
-  val nodes = DhtNode.spawnNodes(system, portBase, 200, List(routerEp)) { (ep, node) =>
+  val nodes = spawnNodes(50, List(routerEp)) { (ep, node) =>
     Thread.sleep(750)   
     println("Started new node on " + ep)
     (ep, node, addSearchPlugin(node))

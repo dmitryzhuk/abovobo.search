@@ -63,6 +63,8 @@ object SearchPluginSmokeTest2 extends App with SearchTestBase {
     Thread.sleep(1 * 1000)    
   }
   
+  searchPlugin ! SearchPlugin.ClearIndex
+  
   val searchers = (1 to 10).map { _ => newSearcher }
   
   val succeded = new AtomicInteger(0)

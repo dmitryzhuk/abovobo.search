@@ -71,7 +71,7 @@ trait SearchTestBase {
   def dhtHome = homeDir.resolve("dht")
   
   def spawnNodes[A](count: Int, routers: List[InetSocketAddress])(f: (InetSocketAddress, ActorRef) => A): Seq[A] = {
-    (1 until count) map { i =>
+    (1 to count) map { i =>
       val ep = new InetSocketAddress(InetAddress.getLocalHost, portBase + i)
       val home = dhtHome.resolve("Node-" + portBase + i)
       f(ep, DhtNode.createNode(home, system, ep, routers))

@@ -23,6 +23,8 @@ import org.abovobo.search.ContentIndex._
 import java.nio.file.Path
 import akka.actor.ActorRefFactory
 import org.abovobo.search.impl.LuceneContentIndex
+import org.abovobo.search.impl.H2IndexManagerRegistry
+
 
 class SearchPlugin(
     selfIdGetter: () => Integer160, 
@@ -146,7 +148,6 @@ class SearchPlugin(
     
     private val pendingNodes: mutable.Set[Integer160] = mutable.HashSet(selfId)
     private val reportedResults: mutable.Set[String] = mutable.HashSet()
-    //private val pendingResults: mutable.Set[ContentRef] = mutable.HashSet()
 
     private def searchInNetwork(params: SearchParams): Traversable[Node] = {
       val msg = new SearchPluginMessage(tid, Lookup(searchString, params))
@@ -206,9 +207,8 @@ class SearchPlugin(
   def createResponseMessage(tid: TID, to: Node, msg: Response) = SendPluginMessage(new SearchPluginMessage(tid, msg), to)
 }
 
-object SearchPlugin {
+object SearchPlugin {  
   val PluginId = new PID(1)
-
   val DefaultMaxItemsCount = 10000
   
   def apply(
@@ -224,8 +224,10 @@ object SearchPlugin {
     indexDir.toFile.mkdirs
     
     val index = new LuceneContentIndex(indexDir)
+        
+    val imRegistry = H2IndexManagerRegistry("jdbc:h2:" + homeDir.resolve(name))
     
-    val indexManager = new IndexManager(index, new IndexManagerRegistry("jdbc:h2:" + homeDir.resolve(name)), maxItemsCount)
+    val indexManager = new IndexManager(index, imRegistry, maxItemsCount)
 
     val indexManagerActor = parent.actorOf(Props(classOf[IndexManagerActor], indexManager), name + "-im")
     

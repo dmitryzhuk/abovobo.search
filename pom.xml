@@ -33,12 +33,13 @@
             <artifactId>dht</artifactId>
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
-
-        <dependency>
-			    <groupId>com.typesafe.slick</groupId>
-			    <artifactId>slick_2.11.0-RC4</artifactId>
-			    <version>2.1.0-M1</version>
-			</dependency>
+        
+				<dependency>
+					<groupId>com.typesafe.slick</groupId>
+					<artifactId>slick_2.11</artifactId>
+					<version>2.1.0-RC1</version>
+					<type>bundle</type>
+				</dependency>
 
         <dependency>
         	<groupId>org.apache.lucene</groupId>
@@ -55,24 +56,22 @@
         	<artifactId>lucene-queryparser</artifactId>
         	<version>${lucene.version}</version>
         </dependency>
-        
-        
-		<!-- Unit testing dependencies -->
-		<dependency>
-			<groupId>junit</groupId>
-			<artifactId>junit</artifactId>
-			<version>4.11</version>
-			<scope>test</scope>
-		</dependency>
 
-		<dependency>
-			<groupId>org.scalatest</groupId>
-			<artifactId>scalatest_2.11</artifactId>
-			<version>2.2.0</version>
-			<scope>test</scope>
-		</dependency>
-        
-        
+				<!-- Unit testing dependencies -->
+				<dependency>
+					<groupId>junit</groupId>
+					<artifactId>junit</artifactId>
+					<version>4.11</version>
+					<scope>test</scope>
+				</dependency>
+		
+				<dependency>
+					<groupId>org.scalatest</groupId>
+					<artifactId>scalatest_2.11</artifactId>
+					<version>2.2.0</version>
+					<scope>test</scope>
+				</dependency>
+
     </dependencies>
 
     <build>

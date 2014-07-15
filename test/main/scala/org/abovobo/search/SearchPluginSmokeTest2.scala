@@ -22,8 +22,8 @@ import org.abovobo.search.impl.LuceneContentIndex
 import org.abovobo.search.ContentIndex.ContentItem
 import java.nio.file.Paths
 import java.nio.file.Files
-import scala.actors.threadpool.AtomicInteger
 import org.abovobo.search.suite.SearchTestBase
+import java.util.concurrent.atomic.AtomicInteger
 
 
 

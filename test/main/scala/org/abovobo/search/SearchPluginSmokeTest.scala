@@ -32,7 +32,7 @@ object SearchPluginSmokeTest extends App with SearchTestBase {
   
   val (routerEp, router) = createRouter()
   
-  val nodes = DhtNode.spawnNodes(system, 20000, 200, List(routerEp)) { (ep, node) =>
+  val nodes = DhtNode.spawnNodes(system, portBase, 200, List(routerEp)) { (ep, node) =>
     Thread.sleep(750)   
     println("Started new node on " + ep)
     (ep, node, addSearchPlugin(node))

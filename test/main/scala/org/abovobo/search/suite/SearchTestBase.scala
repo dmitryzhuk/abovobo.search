@@ -4,7 +4,6 @@ import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
 
-import scala.actors.threadpool.TimeoutException
 import scala.collection.JavaConversions._
 import scala.concurrent.Await
 import scala.concurrent.duration.DurationInt
@@ -96,13 +95,13 @@ trait SearchTestBase {
         try {
           inbox.receive(timeoutDuration)
         } catch {
-          case e: TimeoutException => e
+          case e: Exception => e
         }    
       }
       
       def recvResult(): Set[ContentIndex.ContentRef] =  { 
         receive() match {
-          case e: TimeoutException => println("Cannot get result: " + e.getMessage); result
+          case e: Exception => println("Cannot get result: " + e.getMessage); result
           case SearchFinished(text) => result
           case FoundItems(text, items) => 
             result ++= items.toSet

@@ -75,6 +75,8 @@ object SearchMessagesSerialization {
         val e = Error(integer(next()).toInt, string(next()))
         ensure(classOf[Bencode.ListEnd])
         e
+      case "x" => // FloodClearIndx
+        FloodClearIndex
       case x => xthrow(1, "Unknown message type " + x)
     }
   }
@@ -136,6 +138,11 @@ object SearchMessagesSerialization {
           putNum(code)
           putStr(text)
         buf += 'e'
+      case FloodClearIndex =>
+        putChar('x')
+        putChar('x')
+      case ClearIndex =>
+        throw new IllegalStateException("Local-only command")
     }
     buf += 'e'  
     buf.result()

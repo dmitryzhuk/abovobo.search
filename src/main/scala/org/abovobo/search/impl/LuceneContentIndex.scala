@@ -81,8 +81,7 @@ class LuceneContentIndex(val indexLocation: Path, val commitThreshold: Int = 0, 
   }
       
   def clear() {
-    writer.deleteAll()
-    writer.commit()
+    writerAction(_.deleteAll(), true)
   }
 
   def count: Int = writer.numDocs() 
@@ -127,7 +126,7 @@ class LuceneContentIndex(val indexLocation: Path, val commitThreshold: Int = 0, 
     doc
   }
   
-  private def writerAction(action: IndexWriter => Any) {
+  private def writerAction(action: IndexWriter => Any, forceCommit: Boolean = false) {
     try {
       action(writer)
       changesCount += 1

@@ -28,7 +28,7 @@ import org.abovobo.search.impl.H2IndexManagerRegistry
 
 class SearchPlugin(
     selfIdGetter: () => Integer160, 
-    dhtController: ActorRef, 
+    messageSink: ActorRef, 
     indexManager: ActorRef, 
     dhtNodes: () => Traversable[Node]) extends Actor with ActorLogging {
 
@@ -74,6 +74,9 @@ class SearchPlugin(
             }
           case None => log.warning("unexpected network response from " + remote + " for unknown/expired request: " + message.tid + ", " + response)
         }
+        
+        case FloodClearIndex => FloodIndexCleaner.onClear()
+        
         case _ => throw new IllegalStateException("command should be always wrapped into network command")
       }
 
@@ -85,6 +88,8 @@ class SearchPlugin(
     case Lookup(searchString, params) => SearchOperation.start(selfId,searchString, params, new DirectResponder(this.sender()))
     
     case ClearIndex => indexManager ! IndexManagerActor.Clear
+    
+    case FloodClearIndex => FloodIndexCleaner.onClear()
 
     // 
     // Messages from internal services/self
@@ -106,16 +111,16 @@ class SearchPlugin(
   }
   
   def announce(from: Integer160, item: ContentItem, params: AnnounceParams) {
-    indexManager ! IndexManagerActor.IndexManagerCommand(tidFactory.next(), Announce(item, params))
+    val tid = tidFactory.next()
+    indexManager ! IndexManagerActor.IndexManagerCommand(tid, Announce(item, params))
     if (!params.lastStop)  {
       val msg = Announce(item.compress, params.aged)
       randomNodesExcept(params.width, from) foreach { n =>
-        val tid = tidFactory.next()
         val pm = new SearchPluginMessage(tid, msg)      
         
         log.info("Sending announce for " + item + " to " + n)
         
-        dhtController ! SendPluginMessage(pm, n)
+        messageSink ! SendPluginMessage(pm, n)
       }
     }
   }
@@ -136,7 +141,7 @@ class SearchPlugin(
   class NetworkResponder(tid: TID, sender: Node) extends Responder {
     def apply(response: Response) = {
       log.info("Sending search response " + response + " to " + sender)
-      dhtController ! createResponseMessage(tid, sender, response)
+      messageSink ! createResponseMessage(tid, sender, response)
     }
   }
   
@@ -155,7 +160,7 @@ class SearchPlugin(
       val nodes = randomNodesExcept(params.width, requesterId)
       nodes foreach { n => 
         log.info("Sending search request for '" + searchString + "' to " + n)
-        dhtController ! SendPluginMessage(msg, n)
+        messageSink ! SendPluginMessage(msg, n)
       }
       nodes
     }
@@ -205,6 +210,27 @@ class SearchPlugin(
   class SearchPluginMessage(tid: TID, msg: SearchMessage) extends dht.message.Plugin(tid, selfId, SearchPlugin.PluginId, SearchMessagesSerialization.serializeMessage(msg))
 
   def createResponseMessage(tid: TID, to: Node, msg: Response) = SendPluginMessage(new SearchPluginMessage(tid, msg), to)
+  
+  // Testing utilities 
+  object FloodIndexCleaner {
+    private val threshold = 5000L
+    private var lastClean = 0L
+    
+    def onClear() {
+      log.info("FloodIndexCleaner.onClear()")
+      if (now - lastClean > threshold) {
+        lastClean = now
+        log.info("Starting flood clean!!!")
+        
+        indexManager ! IndexManagerActor.Clear
+
+        val pm = new SearchPluginMessage(tidFactory.next(), FloodClearIndex)                
+        dhtNodes() foreach { n => messageSink ! SendPluginMessage(pm, n) }
+      }
+    }
+    
+    private def now = System.currentTimeMillis
+  }  
 }
 
 object SearchPlugin {  
@@ -277,6 +303,8 @@ object SearchPlugin {
   sealed trait SearchMessage
   
   object ClearIndex extends SearchMessage
+  
+  object FloodClearIndex extends SearchMessage
 
   sealed trait Command extends SearchMessage
 
@@ -297,4 +325,5 @@ object SearchPlugin {
   
   // private messages
   case class SearchTimeout(tid: TID)  
+  
 }

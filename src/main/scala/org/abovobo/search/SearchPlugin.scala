@@ -25,6 +25,7 @@ import akka.actor.ActorRefFactory
 import org.abovobo.search.impl.LuceneContentIndex
 import org.abovobo.search.impl.H2IndexManagerRegistry
 import org.abovobo.logging.global.GlobalLogger
+import org.slf4j.helpers.NOPLogger
 
 
 class SearchPlugin(
@@ -38,7 +39,7 @@ class SearchPlugin(
   import SearchPlugin._
   
   val random = new Random()
-  val glogger = GlobalLogger.getLogger("search")
+  val glogger = NOPLogger.NOP_LOGGER //GlobalLogger.getLogger("search")
   
   def selfId = selfIdGetter()
 

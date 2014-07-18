@@ -15,7 +15,6 @@ object StartNetwork extends App with SearchTestBase {
   
   
   val nodes = spawnNodes(nodesCount, List(routerEp)) { (ep, node) =>
-    Thread.sleep(750)   
     println("Starting new node on " + ep)
     (ep, node, addSearchPlugin(node))
   }
@@ -24,11 +23,13 @@ object StartNetwork extends App with SearchTestBase {
   
   
   while(true) {
-    Thread.sleep(5 * 60 * 1000)
-    println("=================== NETWORK STARTED ===================")    
+    println("\n\n")    
+    println("=================== NETWORK TABLE ===================")    
     nodes.foreach { case (ep, node, search) =>
       printTable(node)
+      Thread.sleep(100)
     }
     println("\n\n")
+    Thread.sleep(5 * 60 * 1000)    
   }
 }

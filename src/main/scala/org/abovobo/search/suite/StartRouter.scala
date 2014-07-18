@@ -9,7 +9,7 @@ object StartRouter extends App with SearchTestBase {
   
   val (routerEp, router) = createRouter()
 
-  println("===== Starting router on localhost:" + port + " =====")
+  println("===== Starting router on localhost:" + routerEp.getPort + " =====")
   
   while (true) {
     Thread.sleep(Long.MaxValue)

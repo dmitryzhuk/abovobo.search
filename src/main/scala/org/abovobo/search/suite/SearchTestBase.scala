@@ -24,6 +24,10 @@ import akka.util.Timeout
 import akka.util.Timeout.durationToTimeout
 import java.nio.file.Path
 import java.nio.file.Paths
+import org.abovobo.search.ContentIndex.ContentItem
+import org.abovobo.integer.Integer160
+import java.util.UUID
+import java.nio.file.Files
 
 
 trait SearchTestBase {
@@ -42,7 +46,7 @@ trait SearchTestBase {
       "akka.actor.debug.unhandled" -> true))    
   }
   
-  def debugLevel = "info"
+  def debugLevel = "error"
   
   def createSystem(name: String) = ActorSystem(name, systemConfig)  
   
@@ -56,7 +60,7 @@ trait SearchTestBase {
     (routerEp, router)
   }
   
-  def localEndpoint(ordinal: Int) = new InetSocketAddress(InetAddress.getLocalHost, portBase + ordinal)  
+  def localEndpoint(port: Int) = new InetSocketAddress(InetAddress.getLocalHost, port)  
   
   def printTable(node: ActorRef) {
     val info = Await.result(node ? DhtNode.Describe, timeoutDuration).asInstanceOf[DhtNode.NodeInfo]
@@ -72,8 +76,9 @@ trait SearchTestBase {
   
   def spawnNodes[A](count: Int, routers: List[InetSocketAddress])(f: (InetSocketAddress, ActorRef) => A): Seq[A] = {
     (1 to count) map { i =>
+      Thread.sleep(1000)
       val ep = new InetSocketAddress(InetAddress.getLocalHost, portBase + i)
-      val home = dhtHome.resolve("Node-" + portBase + i)
+      val home = dhtHome.resolve("Node-" + portBase + i)      
       f(ep, DhtNode.createNode(home, system, ep, routers))
     }
   }
@@ -125,6 +130,14 @@ trait SearchTestBase {
     search _    
   }
 
+  def randomItem = {
+    def rstr = UUID.randomUUID.toString
+    ContentItem(Integer160.random.toString, "title_" + rstr, rnd.nextInt, "description_" + rstr)  
+  }
+  
+  def itemFromFile(title: String, descriptionFile: Path, size: Long = rnd.nextInt) = {
+    ContentItem(Integer160.random.toString, title, size, new String(Files.readAllBytes(descriptionFile), "UTF-8"))  
+  }
   
   lazy val system = createSystem("TestSystem")
   val rnd = new Random

@@ -24,6 +24,7 @@ import java.nio.file.Path
 import akka.actor.ActorRefFactory
 import org.abovobo.search.impl.LuceneContentIndex
 import org.abovobo.search.impl.H2IndexManagerRegistry
+import org.abovobo.logging.global.GlobalLogger
 
 
 class SearchPlugin(
@@ -37,6 +38,7 @@ class SearchPlugin(
   import SearchPlugin._
   
   val random = new Random()
+  val glogger = GlobalLogger.getLogger("search")
   
   def selfId = selfIdGetter()
 
@@ -57,6 +59,8 @@ class SearchPlugin(
           throw e
       }
       log.info("Got network message from " + remote + ": "  + searchMessage)
+      
+      glogger.trace("Got message {}", SearchLogMessage.in(selfId, searchMessage, message.id))
       
       searchMessage match {
         case Announce(item, params) => announce(message.id, item, params)
@@ -116,11 +120,8 @@ class SearchPlugin(
     if (!params.lastStop)  {
       val msg = Announce(item.compress, params.aged)
       randomNodesExcept(params.width, from) foreach { n =>
-        val pm = new SearchPluginMessage(tid, msg)      
-        
-        log.info("Sending announce for " + item + " to " + n)
-        
-        messageSink ! SendPluginMessage(pm, n)
+        log.info("Sending announce for " + item + " to " + n)        
+        networkSend(tid, n, msg)
       }
     }
   }
@@ -141,8 +142,20 @@ class SearchPlugin(
   class NetworkResponder(tid: TID, sender: Node) extends Responder {
     def apply(response: Response) = {
       log.info("Sending search response " + response + " to " + sender)
-      messageSink ! createResponseMessage(tid, sender, response)
+      networkSend(tid, sender, response)
     }
+  }
+
+  
+  private def networkSend(to: Node, spm: SearchPluginMessage) = {
+    glogger.trace("Sending message {}", SearchLogMessage.out(selfId, spm.searchMessage, to.id))
+    
+    messageSink ! SendPluginMessage(spm, to)
+  }
+  private def networkSend(tid: TID, to: Node, msg: SearchMessage) = {
+    glogger.trace("Sending message {}", SearchLogMessage.out(selfId, msg, to.id))
+    
+    messageSink ! SendPluginMessage(new SearchPluginMessage(tid, msg), to)
   }
   
   class SearchOperation private (
@@ -160,7 +173,7 @@ class SearchPlugin(
       val nodes = randomNodesExcept(params.width, requesterId)
       nodes foreach { n => 
         log.info("Sending search request for '" + searchString + "' to " + n)
-        messageSink ! SendPluginMessage(msg, n)
+        networkSend(n, msg)
       }
       nodes
     }
@@ -207,9 +220,7 @@ class SearchPlugin(
     }
   }
   
-  class SearchPluginMessage(tid: TID, msg: SearchMessage) extends dht.message.Plugin(tid, selfId, SearchPlugin.PluginId, SearchMessagesSerialization.serializeMessage(msg))
-
-  def createResponseMessage(tid: TID, to: Node, msg: Response) = SendPluginMessage(new SearchPluginMessage(tid, msg), to)
+  class SearchPluginMessage(tid: TID, protected[SearchPlugin] val searchMessage: SearchMessage) extends dht.message.Plugin(tid, selfId, SearchPlugin.PluginId, SearchMessagesSerialization.serializeMessage(searchMessage))
   
   // Testing utilities 
   object FloodIndexCleaner {
@@ -224,8 +235,7 @@ class SearchPlugin(
         
         indexManager ! IndexManagerActor.Clear
 
-        val pm = new SearchPluginMessage(tidFactory.next(), FloodClearIndex)                
-        dhtNodes() foreach { n => messageSink ! SendPluginMessage(pm, n) }
+        dhtNodes() foreach { n => networkSend(tidFactory.next(), n, FloodClearIndex) }
       }
     }
     

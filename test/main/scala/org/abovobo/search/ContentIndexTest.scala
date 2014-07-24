@@ -61,6 +61,22 @@ abstract class ContentIndexTest extends WordSpec with Matchers with BeforeAndAft
           index.lookup("title5").toList.exists(_.id == item.id) should be(false)
         }
       }
+      
+      "clear() is called" must {
+        "delete all items from index" in {
+          val item = newItem("title5")
+          index.add(newItem())
+          index.add(newItem())          
+          index.add(item)
+          index.lookup("title5").toList.exists(_.id == item.id) should be(true)
+          val count = index.count
+          //index.remove(item.id)
+          index.clear()
+          index.count should be(0)          
+          index.lookup("title5").toList.exists(_.id == item.id) should be(false)
+        }
+      }
+      
     }
     
     def newItem(id: ContentIndex.CID = Integer160.random.toString, title: String = "title", description: String = "description", size: Long = 0): ContentItem = {

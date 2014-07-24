@@ -23,10 +23,14 @@ import org.abovobo.search.ContentIndex._
 import java.nio.file.Path
 import akka.actor.ActorRefFactory
 import org.abovobo.search.impl.LuceneContentIndex
+import org.abovobo.search.impl.H2IndexManagerRegistry
+import org.abovobo.logging.global.GlobalLogger
+import org.slf4j.helpers.NOPLogger
+
 
 class SearchPlugin(
     selfIdGetter: () => Integer160, 
-    dhtController: ActorRef, 
+    messageSink: ActorRef, 
     indexManager: ActorRef, 
     dhtNodes: () => Traversable[Node]) extends Actor with ActorLogging {
 
@@ -35,6 +39,7 @@ class SearchPlugin(
   import SearchPlugin._
   
   val random = new Random()
+  val glogger = NOPLogger.NOP_LOGGER //GlobalLogger.getLogger("search")
   
   def selfId = selfIdGetter()
 
@@ -48,13 +53,15 @@ class SearchPlugin(
     ///
     case Controller.Received(message: dht.message.Plugin, remote) =>
       val searchMessage = try { 
-        deserializeMessage(message.payload)
+        SearchMessagesSerialization.deserializeMessage(message.payload)
       } catch {
         case e: Throwable =>
           log.warning("Cannot parse network message: \n{}\nException: {}", message.payload.toString(), e)
           throw e
       }
       log.info("Got network message from " + remote + ": "  + searchMessage)
+      
+      glogger.trace("Got message {}", SearchLogMessage.in(selfId, searchMessage, message.id))
       
       searchMessage match {
         case Announce(item, params) => announce(message.id, item, params)
@@ -72,6 +79,9 @@ class SearchPlugin(
             }
           case None => log.warning("unexpected network response from " + remote + " for unknown/expired request: " + message.tid + ", " + response)
         }
+        
+        case FloodClearIndex => FloodIndexCleaner.onClear()
+        
         case _ => throw new IllegalStateException("command should be always wrapped into network command")
       }
 
@@ -83,6 +93,8 @@ class SearchPlugin(
     case Lookup(searchString, params) => SearchOperation.start(selfId,searchString, params, new DirectResponder(this.sender()))
     
     case ClearIndex => indexManager ! IndexManagerActor.Clear
+    
+    case FloodClearIndex => FloodIndexCleaner.onClear()
 
     // 
     // Messages from internal services/self
@@ -104,16 +116,13 @@ class SearchPlugin(
   }
   
   def announce(from: Integer160, item: ContentItem, params: AnnounceParams) {
-    indexManager ! IndexManagerActor.IndexManagerCommand(tidFactory.next(), Announce(item, params))
+    val tid = tidFactory.next()
+    indexManager ! IndexManagerActor.IndexManagerCommand(tid, Announce(item, params))
     if (!params.lastStop)  {
       val msg = Announce(item.compress, params.aged)
       randomNodesExcept(params.width, from) foreach { n =>
-        val tid = tidFactory.next()
-        val pm = new SearchPluginMessage(tid, msg)      
-        
-        log.info("Sending announce for " + item + " to " + n)
-        
-        dhtController ! SendPluginMessage(pm, n)
+        log.info("Sending announce for " + item + " to " + n)        
+        networkSend(tid, n, msg)
       }
     }
   }
@@ -134,8 +143,20 @@ class SearchPlugin(
   class NetworkResponder(tid: TID, sender: Node) extends Responder {
     def apply(response: Response) = {
       log.info("Sending search response " + response + " to " + sender)
-      dhtController ! createResponseMessage(tid, sender, response)
+      networkSend(tid, sender, response)
     }
+  }
+
+  
+  private def networkSend(to: Node, spm: SearchPluginMessage) = {
+    glogger.trace("Sending message {}", SearchLogMessage.out(selfId, spm.searchMessage, to.id))
+    
+    messageSink ! SendPluginMessage(spm, to)
+  }
+  private def networkSend(tid: TID, to: Node, msg: SearchMessage) = {
+    glogger.trace("Sending message {}", SearchLogMessage.out(selfId, msg, to.id))
+    
+    messageSink ! SendPluginMessage(new SearchPluginMessage(tid, msg), to)
   }
   
   class SearchOperation private (
@@ -146,7 +167,6 @@ class SearchPlugin(
     
     private val pendingNodes: mutable.Set[Integer160] = mutable.HashSet(selfId)
     private val reportedResults: mutable.Set[String] = mutable.HashSet()
-    //private val pendingResults: mutable.Set[ContentRef] = mutable.HashSet()
 
     private def searchInNetwork(params: SearchParams): Traversable[Node] = {
       val msg = new SearchPluginMessage(tid, Lookup(searchString, params))
@@ -154,7 +174,7 @@ class SearchPlugin(
       val nodes = randomNodesExcept(params.width, requesterId)
       nodes foreach { n => 
         log.info("Sending search request for '" + searchString + "' to " + n)
-        dhtController ! SendPluginMessage(msg, n)
+        networkSend(n, msg)
       }
       nodes
     }
@@ -201,14 +221,31 @@ class SearchPlugin(
     }
   }
   
-  class SearchPluginMessage(tid: TID, msg: SearchMessage) extends dht.message.Plugin(tid, selfId, SearchPlugin.PluginId, serializeMessage(msg))
+  class SearchPluginMessage(tid: TID, protected[SearchPlugin] val searchMessage: SearchMessage) extends dht.message.Plugin(tid, selfId, SearchPlugin.PluginId, SearchMessagesSerialization.serializeMessage(searchMessage))
+  
+  // Testing utilities 
+  object FloodIndexCleaner {
+    private val threshold = 5000L
+    private var lastClean = 0L
+    
+    def onClear() {
+      log.info("FloodIndexCleaner.onClear()")
+      if (now - lastClean > threshold) {
+        lastClean = now
+        log.info("Starting flood clean!!!")
+        
+        indexManager ! IndexManagerActor.Clear
 
-  def createResponseMessage(tid: TID, to: Node, msg: Response) = SendPluginMessage(new SearchPluginMessage(tid, msg), to)
+        dhtNodes() foreach { n => networkSend(tidFactory.next(), n, FloodClearIndex) }
+      }
+    }
+    
+    private def now = System.currentTimeMillis
+  }  
 }
 
-object SearchPlugin {
+object SearchPlugin {  
   val PluginId = new PID(1)
-
   val DefaultMaxItemsCount = 10000
   
   def apply(
@@ -224,8 +261,10 @@ object SearchPlugin {
     indexDir.toFile.mkdirs
     
     val index = new LuceneContentIndex(indexDir)
+        
+    val imRegistry = H2IndexManagerRegistry("jdbc:h2:" + homeDir.resolve(name))
     
-    val indexManager = new IndexManager(index, new IndexManagerRegistry("jdbc:h2:" + homeDir.resolve(name)), maxItemsCount)
+    val indexManager = new IndexManager(index, imRegistry, maxItemsCount)
 
     val indexManagerActor = parent.actorOf(Props(classOf[IndexManagerActor], indexManager), name + "-im")
     
@@ -275,6 +314,8 @@ object SearchPlugin {
   sealed trait SearchMessage
   
   object ClearIndex extends SearchMessage
+  
+  object FloodClearIndex extends SearchMessage
 
   sealed trait Command extends SearchMessage
 
@@ -293,157 +334,7 @@ object SearchPlugin {
   // XXX: incorporate this into DHT error handling mechanism
   final case class Error(code: Int, text: String) extends Response
   
-  
   // private messages
-  case class SearchTimeout(tid: TID)
-  
-  
-  // utilities for controller communication
-  def deserializeMessage(msg: ByteString): SearchMessage = {
-    val events = Bencode.decode(msg)
-
-    def xthrow(code: Int, message: String) = throw new RuntimeException("error " + code + ": " +  message)
-
-    def array(event: Bencode.Event): Array[Byte] = event match {
-      case Bencode.Bytestring(value) => value
-      case _ => xthrow(0, "Malformed packet")
-    }
-
-    /*
-    def integer160(event: Bencode.Event): Integer160 = event match {
-      case Bencode.Bytestring(value) => new Integer160(value)
-      case _ => xthrow(0, "Malformed packet")
-    }
-    */
-
-    def string(event: Bencode.Event): String = event match {
-      case Bencode.Bytestring(value) => new String(value, "UTF-8")
-      case _ => xthrow(0, "Malformed packet")
-    }
-
-    /*
-    def byteString(event: Bencode.Event): ByteString = event match {
-      case Bencode.Bytestring(value) => ByteString(value) 
-      case _ => xthrow(0, "Malformed packet")      
-    }
-    */
-    
-    def integer(event: Bencode.Event): Long = event match {
-      case Bencode.Integer(value) => value
-      case _ => xthrow(0, "Malformed packet")
-    }
-    
-    def next(): Bencode.Event = events.next()
-    
-    def ensure(ec: Class[_ <: Bencode.Event]) = {
-      val n = next()
-      if (!ec.isInstance(n)) {
-        xthrow(2, "Illegal arguments")         
-      }
-    }
-    
-    ensure(classOf[Bencode.DictionaryBegin])
-        
-    string(next()) match {
-      case "a" => // Announce
-        next() // list
-        val id = string(next())
-        val title = string(next())
-        val size = integer(next())
-        val description = array(next())
-        val ttl = integer(next())
-        val width = integer(next())
-        ensure(classOf[Bencode.ListEnd])
-        Announce(new CompressedContentItem(id, title, size, description), new AnnounceParams(ttl.toInt, width.toInt))
-      case "l" => // Lookup
-        next() // list
-        val searchString = string(next())
-        val ttl = integer(next())
-        val width = integer(next())
-        ensure(classOf[Bencode.ListEnd])
-        Lookup(searchString, new SearchParams(ttl.toInt, width.toInt))
-      case "f" => // FoundItems
-        next() // list
-        val searchString = string(next())
-        // lists with items
-        val items = scala.collection.mutable.Set.empty[ContentRef]
-        while (next().isInstanceOf[Bencode.ListBegin]) {
-          items += new SimpleContentRef(string(next()), string(next()), integer(next()))
-          ensure(classOf[Bencode.ListEnd])
-        }
-        // ensure(classOf[Bencode.ListEnd]) - discarded in while
-        FoundItems(searchString, items)
-      case "s" => // SearchFinished
-        SearchFinished(string(next()))
-      case "e" => // Error
-        next() // list
-        val e = Error(integer(next()).toInt, string(next()))
-        ensure(classOf[Bencode.ListEnd])
-        e
-      case x => xthrow(1, "Unknown message type " + x)
-    }
-  }
-  
-  def serializeMessage(msg: SearchMessage): ByteString = {
-    val buf = new ByteStringBuilder()
-    buf += 'd'
-    
-    val charset = Charset.forName("UTF-8")
-    def putStr(str: String) {
-      putArray(str.getBytes(charset))
-    }
-    def putNum(i: Long) {
-      buf += 'i' ++= i.toString.getBytes(charset) += 'e'
-    } 
-    def putArray(bytes: Array[Byte]) {
-      buf ++= bytes.length.toString.getBytes(charset) += ':' ++= bytes 
-    }
-    def putChar(ch: Byte) = {
-      buf += '1' += ':' += ch
-    }
-      
-    msg match {
-      case Announce(item, params) => 
-        putChar('a')
-        buf += 'l'
-          putStr(item.id)
-          putStr(item.title)
-          putNum(item.size)
-          putArray(item.compress.descriptionData)
-          putNum(params.ttl)
-          putNum(params.width)
-        buf += 'e'
-      case Lookup(searchString, params) =>          
-        putChar('l')
-        buf += 'l'
-          putStr(searchString)
-          putNum(params.ttl)
-          putNum(params.width)
-        buf += 'e'          
-      case FoundItems(str, found) =>
-        putChar('f')
-        buf += 'l'
-          putStr(str)            
-          found.foreach { item => 
-            buf += 'l'
-              putStr(item.id)
-              putStr(item.title)
-              putNum(item.size)
-            buf += 'e'               
-          }  
-        buf += 'e' 
-      case SearchFinished(str) =>
-        putStr("s")
-        putStr(str)
-      case Error(code, text) =>
-        putChar('e')
-        buf += 'l'
-          putNum(code)
-          putStr(text)
-        buf += 'e'
-    }
-    buf += 'e'  
-    buf.result()
-  }
+  case class SearchTimeout(tid: TID)  
   
 }

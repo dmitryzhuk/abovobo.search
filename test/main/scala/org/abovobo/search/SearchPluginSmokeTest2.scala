@@ -22,16 +22,18 @@ import org.abovobo.search.impl.LuceneContentIndex
 import org.abovobo.search.ContentIndex.ContentItem
 import java.nio.file.Paths
 import java.nio.file.Files
-import scala.actors.threadpool.AtomicInteger
 import org.abovobo.search.suite.SearchTestBase
+import java.util.concurrent.atomic.AtomicInteger
 
 
 
 object SearchPluginSmokeTest2 extends App with SearchTestBase {
   override def debugLevel = "error"
+    
+  override def homeDir = Paths.get("~/db/smoke2-search-data")    
 
   val ep = new InetSocketAddress(InetAddress.getLocalHost, 30000 + 1)
-  val node = DhtNode.createNode(system, ep, List(new InetSocketAddress(InetAddress.getLocalHost, routerPortBase)))
+  val node = DhtNode.createNode(homeDir.resolve("client"), system, ep, List(new InetSocketAddress(InetAddress.getLocalHost, routerPortBase)))
   val searchPlugin = addSearchPlugin(node)
      
   Thread.sleep(1 * 1000)
@@ -60,6 +62,8 @@ object SearchPluginSmokeTest2 extends App with SearchTestBase {
     searchPlugin ! SearchPlugin.Announce(shortOne)
     Thread.sleep(1 * 1000)    
   }
+  
+  searchPlugin ! SearchPlugin.ClearIndex
   
   val searchers = (1 to 10).map { _ => newSearcher }
   

@@ -6,6 +6,7 @@ import java.io.File
 import org.abovobo.integer.Integer160
 import org.abovobo.search.ContentIndex.ContentItem
 import org.abovobo.search.IndexManager._
+import org.abovobo.search.impl.H2IndexManagerRegistry
 
 
 /**
@@ -17,7 +18,7 @@ class IndexManagerTest extends WordSpec with Matchers {
 
   def newIndex = new LuceneContentIndex(tempDir.toPath)
   
-  def newRegistry = new IndexManagerRegistry("jdbc:h2:./tmp/index/reg")
+  def newRegistry = H2IndexManagerRegistry("jdbc:h2:./tmp/index/reg")
     
   "IndexManager" when {
     "instantiated be empty" in {
@@ -33,6 +34,35 @@ class IndexManagerTest extends WordSpec with Matchers {
       im.offer(newItem()) should be(Accepted)
       im.offer(newItem()) should be(Accepted)
       im.close()
+    }
+    "clear() is called" must {
+      "delete all items" in {
+        val index = newIndex
+        val reg = newRegistry
+        val im = new IndexManager(index, reg, 100)
+        im.clear()
+        im.offer(newItem()) should be(Accepted)
+        im.offer(newItem()) should be(Accepted)
+        im.offer(newItem()) should be(Accepted)   
+        val item = newItem(title = "title666")
+        im.offer(item) should be(Accepted)
+        
+        index.count should be(4)
+        reg.count should be(4)
+
+        im.search("title666").toList.exists(_.id == item.id) should be(true)
+        im.search(item.id).toList.exists(_.id == item.id) should be(true)        
+
+        im.clear()
+        
+        index.count should be(0)
+        reg.count should be(0)
+
+        im.search("title666").toList.exists(_.id == item.id) should be(false)
+        im.search(item.id).toList.exists(_.id == item.id) should be(false)                
+        
+        im.close()
+      }
     }
     "new item is added" must {
       "return it with search" in {

@@ -2,9 +2,8 @@ package org.abovobo.search.suite
 
 import java.net.InetSocketAddress
 import java.net.InetAddress
-import org.abovobo.dht.DhtNode
+import org.abovobo.dht.controller.Controller
 import org.abovobo.search.SearchPlugin
-import org.abovobo.dht.Controller
 import org.abovobo.integer.Integer160
 
 object OneShotTest extends App with SearchTestBase {
@@ -23,12 +22,12 @@ object OneShotTest extends App with SearchTestBase {
   
   println("Doing announce")
   
-  val announcerNode = DhtNode.createNode(homeDir.resolve("announcer"), system, localEndpoint(5555), List(routerEp))
+  val announcerNode = null //DhtNode.createNode(homeDir.resolve("announcer"), system, localEndpoint(5555), List(routerEp))
   val announcerSearch = addSearchPlugin(announcerNode)
     
   Thread.sleep(1000)   
   
-  announcerNode ! new Controller.FindNode(Integer160.random)
+  //announcerNode ! new Controller.FindNode(Integer160.random)
   
   Thread.sleep(1000)
     
@@ -43,7 +42,7 @@ object OneShotTest extends App with SearchTestBase {
   Thread.sleep(5000)  
 
   announcerSearch ! SearchPlugin.ClearIndex
-  announcerNode ! DhtNode.Stop
+ // announcerNode ! DhtNode.Stop
   
   Thread.sleep(1000)  
   
@@ -90,7 +89,7 @@ object OneShotTest extends App with SearchTestBase {
   }
   
   resultsP.foreach { case (ep, p) =>
-    println("Node " + ep + ": p = " + p)    
+    println("NodeInfo " + ep + ": p = " + p)
   }
   
   println("Totals:")
@@ -106,10 +105,10 @@ object OneShotTest extends App with SearchTestBase {
   Thread.sleep(1000)
   
   //announcerNode ! DhtNode.Stop
-  requestorsNodes.foreach { n => n._2 ! DhtNode.Stop }
+  //requestorsNodes.foreach { n => n._2 ! DhtNode.Stop }
 
   Thread.sleep(1000)
   
-  system.shutdown()
-  system.awaitTermination()  
+  //system.shutdown()
+  //system.awaitTermination()
 }

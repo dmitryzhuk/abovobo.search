@@ -6,7 +6,7 @@ import com.typesafe.config.ConfigFactory
 import akka.actor.Inbox
 import akka.actor.Props
 import akka.actor.ActorRef
-import org.abovobo.dht.Controller
+import org.abovobo.dht.controller.Controller
 import org.abovobo.search.SearchPlugin._
 import org.abovobo.integer.Integer160
 import akka.actor.ActorSystem
@@ -15,7 +15,6 @@ import java.util.concurrent.TimeoutException
 import akka.pattern.ask
 import akka.util.Timeout
 import scala.concurrent.Await
-import org.abovobo.dht.DhtNode
 import scala.util.Random
 import java.io.File
 import org.abovobo.search.impl.LuceneContentIndex
@@ -33,14 +32,14 @@ object SearchPluginSmokeTest2 extends App with SearchTestBase {
   override def homeDir = Paths.get("~/db/smoke2-search-data")    
 
   val ep = new InetSocketAddress(InetAddress.getLocalHost, 30000 + 1)
-  val node = DhtNode.createNode(homeDir.resolve("client"), system, ep, List(new InetSocketAddress(InetAddress.getLocalHost, routerPortBase)))
+  val node = null// DhtNode.createNode(homeDir.resolve("client"), system, ep, List(new InetSocketAddress(InetAddress.getLocalHost, routerPortBase)))
   val searchPlugin = addSearchPlugin(node)
      
   Thread.sleep(1 * 1000)
   
   println("--------- find node -------")
  
-  node ! Controller.FindNode(Integer160.random)
+  //node ! Controller.FindNode(Integer160.random)
 
   Thread.sleep(1 * 1000)
     
@@ -98,7 +97,7 @@ object SearchPluginSmokeTest2 extends App with SearchTestBase {
   printTable(node)
   
   println("------------------------- cleaning up")
-  node ! DhtNode.Stop
+  //node ! DhtNode.Stop
   Thread.sleep(3 * 1000)
   system.shutdown()
   system.awaitTermination()

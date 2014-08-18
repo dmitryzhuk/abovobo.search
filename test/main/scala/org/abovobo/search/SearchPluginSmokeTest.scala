@@ -15,13 +15,12 @@ import java.util.concurrent.TimeoutException
 import akka.pattern.ask
 import akka.util.Timeout
 import scala.concurrent.Await
-import org.abovobo.dht.DhtNode
 import scala.util.Random
 import java.io.File
 import org.abovobo.search.impl.LuceneContentIndex
 import java.nio.file.Files
 import java.nio.file.Paths
-import org.abovobo.dht.Controller
+import org.abovobo.dht.controller.Controller
 import org.abovobo.search.suite.SearchTestBase
 
 
@@ -146,7 +145,7 @@ object SearchPluginSmokeTest extends App with SearchTestBase {
   println("------------------------- cleaning up")
 
   Thread.sleep(1000)
-  nodes foreach { node => node._2 ! DhtNode.Stop } 
+  //nodes foreach { node => node._2 ! DhtNode.Stop }
   Thread.sleep(3 * 1000)
   system.shutdown()
   system.awaitTermination()

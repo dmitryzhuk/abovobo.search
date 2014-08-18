@@ -4,10 +4,11 @@ import akka.actor.ActorLogging
 import org.abovobo.dht.controller.Controller
 import org.abovobo.integer.Integer160
 import org.abovobo.dht
+import org.abovobo.dht.Agent
 import Controller.SendPluginMessage
 import org.abovobo.dht.TID
 import org.abovobo.dht.PID
-import org.abovobo.dht.Node
+import org.abovobo.dht.NodeInfo
 import akka.actor.ActorRef
 import scala.concurrent.duration._
 import scala.collection.mutable
@@ -21,7 +22,7 @@ import java.nio.charset.Charset
 import org.abovobo.conversions.Bencode
 import org.abovobo.search.ContentIndex._
 
-class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[Node]) extends Actor with ActorLogging {
+class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[NodeInfo]) extends Actor with ActorLogging {
 
   val system = this.context.system
   import system.dispatcher
@@ -39,7 +40,7 @@ class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef,
     //
     // Message from network
     ///
-    case Controller.Received(message: dht.message.Plugin, remote) =>
+    case Agent.Received(message: dht.message.Plugin, remote) =>
       val searchMessage = try { 
         deserializeMessage(message.payload)
       } catch {
@@ -52,7 +53,7 @@ class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef,
       searchMessage match {
         case Announce(item, params) => announce(message.id, item, params)
 
-        case Lookup(searchString, params) => SearchOperation.start(message.id, searchString, params, new NetworkResponder(message.tid, new Node(message.id, remote)))
+        case Lookup(searchString, params) => SearchOperation.start(message.id, searchString, params, new NetworkResponder(message.tid, new NodeInfo(message.id, remote)))
        
         case response: Response => currentRequests.get(message.tid) match {
           case Some(search) =>
@@ -95,7 +96,7 @@ class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef,
   }
   
   def announce(from: Integer160, item: ContentItem, params: AnnounceParams) {
-    indexManager ! IndexManagerActor.IndexManagerCommand(tidFactory.next(), Announce(item, params))
+    //indexManager ! IndexManagerActor.IndexManagerCommand(tidFactory.next(), Announce(item, params))
     if (!params.lastStop)  {
       val msg = Announce(item.compress, params.aged)
       randomNodesExcept(params.width, from) foreach { n =>
@@ -113,7 +114,7 @@ class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef,
     randomNodes(count + 1).filter(_.id != id).take(count)
   }
   
-  def randomNodes(count: Int): Traversable[Node] = {
+  def randomNodes(count: Int): Traversable[NodeInfo] = {
     random.shuffle(dhtNodes()).take(count)
   }
   
@@ -122,7 +123,7 @@ class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef,
   class DirectResponder(sender: ActorRef) extends Responder {
     def apply(response: Response) = sender ! response 
   }
-  class NetworkResponder(tid: TID, sender: Node) extends Responder {
+  class NetworkResponder(tid: TID, sender: NodeInfo) extends Responder {
     def apply(response: Response) = {
       log.info("Sending search response " + response + " to " + sender)
       dhtController ! createResponseMessage(tid, sender, response)
@@ -139,7 +140,7 @@ class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef,
     private val reportedResults: mutable.Set[String] = mutable.HashSet()
     //private val pendingResults: mutable.Set[ContentRef] = mutable.HashSet()
 
-    private def searchInNetwork(params: SearchParams): Traversable[Node] = {
+    private def searchInNetwork(params: SearchParams): Traversable[NodeInfo] = {
       val msg = new SearchPluginMessage(tid, Lookup(searchString, params))
       
       val nodes = randomNodesExcept(params.width, requesterId)
@@ -183,7 +184,7 @@ class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef,
   
       currentRequests.add(tid, search)
       
-      indexManager ! IndexManagerActor.IndexManagerCommand(tid, Lookup(searchString, params))
+      //indexManager ! IndexManagerActor.IndexManagerCommand(tid, Lookup(searchString, params))
       
       if (!params.lastStop) {
         search.pendingNodes ++= search.searchInNetwork(params.aged).map(_.id)
@@ -194,12 +195,12 @@ class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef,
   
   class SearchPluginMessage(tid: TID, msg: SearchMessage) extends dht.message.Plugin(tid, selfId, SearchPlugin.PluginId, serializeMessage(msg))
 
-  def createResponseMessage(tid: TID, to: Node, msg: Response) = SendPluginMessage(new SearchPluginMessage(tid, msg), to)
+  def createResponseMessage(tid: TID, to: NodeInfo, msg: Response) = SendPluginMessage(new SearchPluginMessage(tid, msg), to)
 }
 
 object SearchPluginActor {
   val SearchPluginId = new PID(1)
-  def props(selfId: () => Integer160, messageChannel: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[Node]) =
+  def props(selfId: () => Integer160, messageChannel: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[NodeInfo]) =
     Props(classOf[SearchPluginActor], selfId, messageChannel, indexManager, dhtNodes)
 
   trait Params {

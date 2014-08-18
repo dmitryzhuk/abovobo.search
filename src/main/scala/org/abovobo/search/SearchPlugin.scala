@@ -2,12 +2,13 @@ package org.abovobo.search
 
 import akka.actor.ActorLogging
 import org.abovobo.dht.controller.Controller
+import org.abovobo.dht.Agent
 import org.abovobo.integer.Integer160
 import org.abovobo.dht
 import Controller.SendPluginMessage
 import org.abovobo.dht.TID
 import org.abovobo.dht.PID
-import org.abovobo.dht.Node
+import org.abovobo.dht.NodeInfo
 import akka.actor.ActorRef
 import scala.concurrent.duration._
 import scala.collection.mutable
@@ -32,7 +33,7 @@ class SearchPlugin(
     selfIdGetter: () => Integer160, 
     messageSink: ActorRef, 
     indexManager: ActorRef, 
-    dhtNodes: () => Traversable[Node]) extends Actor with ActorLogging {
+    dhtNodes: () => Traversable[NodeInfo]) extends Actor with ActorLogging {
 
   val system = this.context.system
   import system.dispatcher
@@ -51,7 +52,7 @@ class SearchPlugin(
     //
     // Message from network
     ///
-    case Controller.Received(message: dht.message.Plugin, remote) =>
+    case Agent.Received(message: dht.message.Plugin, remote) =>
       val searchMessage = try { 
         SearchMessagesSerialization.deserializeMessage(message.payload)
       } catch {
@@ -66,7 +67,7 @@ class SearchPlugin(
       searchMessage match {
         case Announce(item, params) => announce(message.id, item, params)
 
-        case Lookup(searchString, params) => SearchOperation.start(message.id, searchString, params, new NetworkResponder(message.tid, new Node(message.id, remote)))
+        case Lookup(searchString, params) => SearchOperation.start(message.id, searchString, params, new NetworkResponder(message.tid, new NodeInfo(message.id, remote)))
        
         case response: Response => currentRequests.get(message.tid) match {
           case Some(search) =>
@@ -103,11 +104,13 @@ class SearchPlugin(
       currentRequests.get(tid) match {
         case Some(search) =>
           log.debug("Local response: " + response)
+          /*
           response match {
             case FoundItems(searchString, refs) => search.addResults(selfId, refs)
             case Error(code, message) => log.error("Error from local index: " + code + ", " + message)
             case SearchFinished(searchString) => // shouldn't happen
           }
+          */
           search.finishForNode(selfId) // there will be no SearchFinished
         case None => log.info("local response for unknown/expired request: " + tid + ", " + response)
       }      
@@ -131,7 +134,7 @@ class SearchPlugin(
     randomNodes(count + 1).filter(_.id != id).take(count)
   }
   
-  def randomNodes(count: Int): Traversable[Node] = {
+  def randomNodes(count: Int): Traversable[NodeInfo] = {
     random.shuffle(dhtNodes()).take(count)
   }
   
@@ -140,7 +143,7 @@ class SearchPlugin(
   class DirectResponder(sender: ActorRef) extends Responder {
     def apply(response: Response) = sender ! response 
   }
-  class NetworkResponder(tid: TID, sender: Node) extends Responder {
+  class NetworkResponder(tid: TID, sender: NodeInfo) extends Responder {
     def apply(response: Response) = {
       log.info("Sending search response " + response + " to " + sender)
       networkSend(tid, sender, response)
@@ -148,12 +151,12 @@ class SearchPlugin(
   }
 
   
-  private def networkSend(to: Node, spm: SearchPluginMessage) = {
+  private def networkSend(to: NodeInfo, spm: SearchPluginMessage) = {
     glogger.trace("Sending message {}", SearchLogMessage.out(selfId, spm.searchMessage, to.id))
     
     messageSink ! SendPluginMessage(spm, to)
   }
-  private def networkSend(tid: TID, to: Node, msg: SearchMessage) = {
+  private def networkSend(tid: TID, to: NodeInfo, msg: SearchMessage) = {
     glogger.trace("Sending message {}", SearchLogMessage.out(selfId, msg, to.id))
     
     messageSink ! SendPluginMessage(new SearchPluginMessage(tid, msg), to)
@@ -168,7 +171,7 @@ class SearchPlugin(
     private val pendingNodes: mutable.Set[Integer160] = mutable.HashSet(selfId)
     private val reportedResults: mutable.Set[String] = mutable.HashSet()
 
-    private def searchInNetwork(params: SearchParams): Traversable[Node] = {
+    private def searchInNetwork(params: SearchParams): Traversable[NodeInfo] = {
       val msg = new SearchPluginMessage(tid, Lookup(searchString, params))
       
       val nodes = randomNodesExcept(params.width, requesterId)
@@ -254,7 +257,7 @@ object SearchPlugin {
     parent: ActorRefFactory, 
     messageChannel: ActorRef,
     selfId: () => Integer160, 
-    dhtNodes: () => Traversable[Node],
+    dhtNodes: () => Traversable[NodeInfo],
     maxItemsCount: Int = SearchPlugin.DefaultMaxItemsCount): ActorRef = {
   
     val indexDir = homeDir.resolve("index")
@@ -276,7 +279,7 @@ object SearchPlugin {
     searchPluginActor
   }
 
-  def props(selfId: () => Integer160, messageChannel: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[Node]) =
+  def props(selfId: () => Integer160, messageChannel: ActorRef, indexManager: ActorRef, dhtNodes: () => Traversable[NodeInfo]) =
     Props(classOf[SearchPlugin], selfId, messageChannel, indexManager, dhtNodes)
 
   trait Params {

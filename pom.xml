@@ -17,7 +17,7 @@
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <encoding>UTF-8</encoding>
-        <lucene.version>4.8.1</lucene.version>
+        <lucene.version>4.9.0</lucene.version>
     </properties>
 
     <dependencies>

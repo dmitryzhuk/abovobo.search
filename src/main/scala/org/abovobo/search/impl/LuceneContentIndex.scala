@@ -144,5 +144,5 @@ class LuceneContentIndex(val indexLocation: Path, val commitThreshold: Int = 0, 
 }
 
 object LuceneContentIndex {
-  val version = Version.LUCENE_48
+  val version = Version.LUCENE_4_9
 }

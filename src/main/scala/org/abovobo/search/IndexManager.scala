@@ -12,10 +12,11 @@ import IndexManager._
  * put new items into index when there's enough space for this.
  * 
  * It is also responsible for index cleanup. For now index item lifetime looks like this:
- * - if there's enough space and no such item in the index, offered {@link #offer(ContentItem)} item is indexed
+ * - if there's enough space and no such item in the index, offered `offer(ContentItem)` item is indexed
  * - when index is full (items count >= maxItemsCount) no new items can be inserted
- * - when items count is in 'red zone' at some point {@link #cleanup()} procedure starts
- * - cleanup() tries to remove items from 'red zone' and 'yellow' zone, leaving index in 'green zone' but by deleting obsolete items only (@see itemsLifetime)
+ * - when items count is in 'red zone' at some point `cleanup()` procedure starts
+ * - cleanup() tries to remove items from 'red zone' and 'yellow' zone, leaving index in 'green zone'
+ *   but by deleting obsolete items only (@see itemsLifetime)
  * - if no obsolete items are present during cleanup index might become full for some time
  * 
  * @constructor

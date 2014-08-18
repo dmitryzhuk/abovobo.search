@@ -1,7 +1,6 @@
 package org.abovobo.search.suite
 
 import java.net.InetSocketAddress
-import org.abovobo.dht.DhtNode
 
 object StartNetwork extends App with SearchTestBase {
   val routerEp = new InetSocketAddress(args(0).split(":")(0), args(0).split(":")(1).toInt)

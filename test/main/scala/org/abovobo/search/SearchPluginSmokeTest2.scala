@@ -6,7 +6,7 @@ import com.typesafe.config.ConfigFactory
 import akka.actor.Inbox
 import akka.actor.Props
 import akka.actor.ActorRef
-import org.abovobo.dht.controller.Controller
+import org.abovobo.dht.Requester
 import org.abovobo.search.SearchPlugin._
 import org.abovobo.integer.Integer160
 import akka.actor.ActorSystem
@@ -39,7 +39,7 @@ object SearchPluginSmokeTest2 extends App with SearchTestBase {
   
   println("--------- find node -------")
  
-  //node ! Controller.FindNode(Integer160.random)
+  //node ! Requester.FindNode(Integer160.random)
 
   Thread.sleep(1 * 1000)
     

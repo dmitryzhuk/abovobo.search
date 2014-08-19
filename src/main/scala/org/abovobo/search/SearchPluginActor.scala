@@ -1,18 +1,13 @@
 package org.abovobo.search
 
 import akka.actor.ActorLogging
-import org.abovobo.dht.controller.Controller
 import org.abovobo.integer.Integer160
 import org.abovobo.dht
-import org.abovobo.dht.Agent
-import Controller.SendPluginMessage
-import org.abovobo.dht.TID
-import org.abovobo.dht.PID
-import org.abovobo.dht.NodeInfo
+import org.abovobo.dht._
+import Requester.SendPluginMessage
 import akka.actor.ActorRef
 import scala.concurrent.duration._
 import scala.collection.mutable
-import org.abovobo.dht.TIDFactory
 import akka.actor.Actor
 import akka.actor.Props
 import scala.util.Random
@@ -258,7 +253,7 @@ object SearchPluginActor {
   case class SearchTimeout(tid: TID)
   
   
-  // utilities for controller communication
+  // utilities for finder communication
   def deserializeMessage(msg: ByteString): SearchMessage = {
     val events = Bencode.decode(msg)
 

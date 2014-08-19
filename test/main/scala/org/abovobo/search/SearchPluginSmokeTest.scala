@@ -6,6 +6,7 @@ import com.typesafe.config.ConfigFactory
 import akka.actor.Inbox
 import akka.actor.Props
 import akka.actor.ActorRef
+import org.abovobo.dht.Requester
 import org.abovobo.search.SearchPlugin._
 import org.abovobo.search.ContentIndex.ContentItem
 import org.abovobo.integer.Integer160
@@ -20,7 +21,6 @@ import java.io.File
 import org.abovobo.search.impl.LuceneContentIndex
 import java.nio.file.Files
 import java.nio.file.Paths
-import org.abovobo.dht.controller.Controller
 import org.abovobo.search.suite.SearchTestBase
 
 
@@ -44,7 +44,7 @@ object SearchPluginSmokeTest extends App with SearchTestBase {
   println("--------- find node -------")
  
   rnd.shuffle(nodes).take(nodes.size / 10) foreach { node =>
-    node._2 ! Controller.FindNode(Integer160.random)
+    node._2 ! Requester.FindNode(Integer160.random)
     Thread.sleep(1 * 1000)
   }
 

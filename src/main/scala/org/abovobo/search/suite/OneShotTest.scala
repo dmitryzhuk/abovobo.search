@@ -2,7 +2,7 @@ package org.abovobo.search.suite
 
 import java.net.InetSocketAddress
 import java.net.InetAddress
-import org.abovobo.dht.controller.Controller
+import org.abovobo.dht.Requester
 import org.abovobo.search.SearchPlugin
 import org.abovobo.integer.Integer160
 
@@ -27,7 +27,7 @@ object OneShotTest extends App with SearchTestBase {
     
   Thread.sleep(1000)   
   
-  //announcerNode ! new Controller.FindNode(Integer160.random)
+  //announcerNode ! new Requester.FindNode(Integer160.random)
   
   Thread.sleep(1000)
     

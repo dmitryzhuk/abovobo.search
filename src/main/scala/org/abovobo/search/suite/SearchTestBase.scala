@@ -92,7 +92,7 @@ trait SearchTestBase {
         home, 
         name,
         system, 
-        info.controller, { () => info.self.id }, { () =>
+        info.finder, { () => info.self.id }, { () =>
       Await.result(node ? DhtNode.Describe, timeoutDuration).asInstanceOf[DhtNode.NodeInfo].nodes
     })*/
 

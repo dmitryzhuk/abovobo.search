@@ -1,18 +1,13 @@
 package org.abovobo.search
 
 import akka.actor.ActorLogging
-import org.abovobo.dht.controller.Controller
-import org.abovobo.dht.Agent
+import org.abovobo.dht._
 import org.abovobo.integer.Integer160
 import org.abovobo.dht
-import Controller.SendPluginMessage
-import org.abovobo.dht.TID
-import org.abovobo.dht.PID
-import org.abovobo.dht.NodeInfo
+import Requester.SendPluginMessage
 import akka.actor.ActorRef
 import scala.concurrent.duration._
 import scala.collection.mutable
-import org.abovobo.dht.TIDFactory
 import akka.actor.Actor
 import akka.actor.Props
 import scala.util.Random
@@ -25,7 +20,6 @@ import java.nio.file.Path
 import akka.actor.ActorRefFactory
 import org.abovobo.search.impl.LuceneContentIndex
 import org.abovobo.search.impl.H2IndexManagerRegistry
-import org.abovobo.logging.global.GlobalLogger
 import org.slf4j.helpers.NOPLogger
 
 
@@ -274,7 +268,7 @@ object SearchPlugin {
     val searchPluginActor = parent.actorOf(props(selfId, messageChannel, indexManagerActor, dhtNodes))
     
     // subscribe for messages
-    messageChannel ! Controller.PutPlugin(SearchPlugin.PluginId, searchPluginActor)
+    messageChannel ! Requester.PutPlugin(SearchPlugin.PluginId, searchPluginActor)
     
     searchPluginActor
   }

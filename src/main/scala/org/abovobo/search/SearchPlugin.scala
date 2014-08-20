@@ -4,17 +4,12 @@ import akka.actor.ActorLogging
 import org.abovobo.dht._
 import org.abovobo.integer.Integer160
 import org.abovobo.dht
-import Requester.SendPluginMessage
 import akka.actor.ActorRef
 import scala.concurrent.duration._
 import scala.collection.mutable
 import akka.actor.Actor
 import akka.actor.Props
 import scala.util.Random
-import akka.util.ByteStringBuilder
-import akka.util.ByteString
-import java.nio.charset.Charset
-import org.abovobo.conversions.Bencode
 import org.abovobo.search.ContentIndex._
 import java.nio.file.Path
 import akka.actor.ActorRefFactory
@@ -148,12 +143,12 @@ class SearchPlugin(
   private def networkSend(to: NodeInfo, spm: SearchPluginMessage) = {
     glogger.trace("Sending message {}", SearchLogMessage.out(selfId, spm.searchMessage, to.id))
     
-    messageSink ! SendPluginMessage(spm, to)
+    //messageSink ! SendPluginMessage(spm, to)
   }
   private def networkSend(tid: TID, to: NodeInfo, msg: SearchMessage) = {
     glogger.trace("Sending message {}", SearchLogMessage.out(selfId, msg, to.id))
     
-    messageSink ! SendPluginMessage(new SearchPluginMessage(tid, msg), to)
+    //messageSink ! SendPluginMessage(new SearchPluginMessage(tid, msg), to)
   }
   
   class SearchOperation private (
@@ -268,7 +263,7 @@ object SearchPlugin {
     val searchPluginActor = parent.actorOf(props(selfId, messageChannel, indexManagerActor, dhtNodes))
     
     // subscribe for messages
-    messageChannel ! Requester.PutPlugin(SearchPlugin.PluginId, searchPluginActor)
+    //messageChannel ! Requester.PutPlugin(SearchPlugin.PluginId, searchPluginActor)
     
     searchPluginActor
   }

@@ -4,7 +4,6 @@ import akka.actor.ActorLogging
 import org.abovobo.integer.Integer160
 import org.abovobo.dht
 import org.abovobo.dht._
-import Requester.SendPluginMessage
 import akka.actor.ActorRef
 import scala.concurrent.duration._
 import scala.collection.mutable
@@ -100,7 +99,7 @@ class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef,
         
         log.info("Sending announce for " + item + " to " + n)
         
-        dhtController ! SendPluginMessage(pm, n)
+        //dhtController ! SendPluginMessage(pm, n)
       }
     }
   }
@@ -121,7 +120,7 @@ class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef,
   class NetworkResponder(tid: TID, sender: NodeInfo) extends Responder {
     def apply(response: Response) = {
       log.info("Sending search response " + response + " to " + sender)
-      dhtController ! createResponseMessage(tid, sender, response)
+      //dhtController ! createResponseMessage(tid, sender, response)
     }
   }
   
@@ -141,7 +140,7 @@ class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef,
       val nodes = randomNodesExcept(params.width, requesterId)
       nodes foreach { n => 
         log.info("Sending search request for '" + searchString + "' to " + n)
-        dhtController ! SendPluginMessage(msg, n)
+        //dhtController ! SendPluginMessage(msg, n)
       }
       nodes
     }
@@ -190,7 +189,7 @@ class SearchPluginActor(selfIdGetter: () => Integer160, dhtController: ActorRef,
   
   class SearchPluginMessage(tid: TID, msg: SearchMessage) extends dht.message.Plugin(tid, selfId, SearchPlugin.PluginId, serializeMessage(msg))
 
-  def createResponseMessage(tid: TID, to: NodeInfo, msg: Response) = SendPluginMessage(new SearchPluginMessage(tid, msg), to)
+  //def createResponseMessage(tid: TID, to: NodeInfo, msg: Response) = SendPluginMessage(new SearchPluginMessage(tid, msg), to)
 }
 
 object SearchPluginActor {
